@@ -13,6 +13,9 @@ class AppState: ObservableObject {
     /// Controller that orchestrates audio capture and transcription
     private let recordingController = RecordingController()
 
+    /// Permission manager for checking and requesting system permissions
+    private let permissionManager = PermissionManager()
+
     init() {
         // Register both key down and key up handlers for dual-mode support
         KeyboardShortcuts.onKeyDown(for: .toggleRecording) { [weak self] in
@@ -44,8 +47,8 @@ class AppState: ObservableObject {
                 Task { await startRecording() }
             case .recording:
                 Task { await stopRecording() }
-            case .processing:
-                break // Ignore while processing
+            case .processing, .success, .error:
+                break // Ignore while processing or in transient states
             }
         case .pushToTalk:
             // Push-to-talk: stop on key up
@@ -57,27 +60,85 @@ class AppState: ObservableObject {
 
     /// Start recording after checking permissions
     private func startRecording() async {
-        // Check permissions first
-        let hasPermissions = await recordingController.requestPermissions()
-        guard hasPermissions else {
-            // Stay idle if permissions denied (error handling in Phase 3)
+        // Check microphone permission
+        let micResult = await permissionManager.requestMicrophonePermission()
+        guard case .success = micResult else {
+            if case .failure(let error) = micResult {
+                transitionToError(error)
+            }
             return
         }
 
+        // Check speech recognition permission
+        let speechResult = await permissionManager.requestSpeechRecognitionPermission()
+        guard case .success = speechResult else {
+            if case .failure(let error) = speechResult {
+                transitionToError(error)
+            }
+            return
+        }
+
+        // Permissions granted, proceed with recording
         do {
             try recordingController.startRecording()
             currentState = .recording
         } catch {
-            // Stay idle if recording fails to start (error handling in Phase 3)
+            transitionToError(.recordingFailed(underlying: error))
         }
     }
 
     /// Stop recording and process transcription
     private func stopRecording() async {
         currentState = .processing
-        _ = await recordingController.stopRecording()
-        currentState = .idle
-        // Notification of success/failure is Phase 3
+
+        do {
+            // Wrap transcription in 30-second timeout
+            let transcription = try await withTimeout(seconds: 30) {
+                await self.recordingController.stopRecording()
+            }
+
+            // Check if we got valid transcription
+            guard let text = transcription, !text.isEmpty else {
+                transitionToError(.noSpeechDetected)
+                return
+            }
+
+            // Transcription already copied to clipboard by RecordingController
+            transitionToSuccess(transcription: text)
+
+        } catch AppError.transcriptionTimeout {
+            // Timeout gets specific notification
+            NotificationManager.shared.showTimeout()
+            currentState = .idle
+
+        } catch let error as AppError {
+            transitionToError(error)
+
+        } catch {
+            transitionToError(.recordingFailed(underlying: error))
+        }
+    }
+
+    /// Transition to success state with notification and auto-reset to idle
+    private func transitionToSuccess(transcription: String) {
+        currentState = .success(transcription: transcription)
+        NotificationManager.shared.showSuccess(transcription: transcription)
+
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            currentState = .idle
+        }
+    }
+
+    /// Transition to error state with notification and auto-reset to idle
+    private func transitionToError(_ error: AppError) {
+        currentState = .error(error)
+        NotificationManager.shared.showError(error)
+
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            currentState = .idle
+        }
     }
 
     /// SF Symbol name for the menu bar icon based on current state
@@ -89,6 +150,10 @@ class AppState: ObservableObject {
             return "mic.circle.fill"
         case .processing:
             return "waveform.circle"
+        case .success:
+            return "checkmark.circle.fill"
+        case .error:
+            return "exclamationmark.circle"
         }
     }
 }

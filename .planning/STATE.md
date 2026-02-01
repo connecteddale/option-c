@@ -6,34 +6,34 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't capture speech and deliver text to clipboard, nothing else matters.
 
-**Current focus:** Phase 2 - Core Recording & Transcription
+**Current focus:** Phase 2 - Core Recording & Transcription (COMPLETE)
 
 ## Current Position
 
 Phase: 2 of 3 (Core Recording & Transcription)
-Plan: 1 of TBD
-Status: In progress
-Last activity: 2026-02-01 - Completed 02-01-PLAN.md (Audio Capture & Transcription Foundation)
+Plan: 2 of 2 (Phase 2 complete)
+Status: Phase complete - ready for Phase 3
+Last activity: 2026-02-01 - Completed 02-02-PLAN.md (Recording Pipeline Integration)
 
-Progress: [███░░░░░░░] 30%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 4.7min
-- Total execution time: 0.23 hours
+- Total plans completed: 4
+- Average duration: 4.4min
+- Total execution time: 0.29 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation-menu-bar | 2 | 11min | 5.5min |
-| 02-core-recording-transcription | 1 | 3min | 3min |
+| 02-core-recording-transcription | 2 | 6min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 8min, 3min, 3min
-- Trend: Improving velocity
+- Last 5 plans: 8min, 3min, 3min, 3min
+- Trend: Consistent velocity
 
 *Updated after each plan completion*
 
@@ -54,6 +54,9 @@ Recent decisions affecting current work:
 - Fresh AVAudioEngine per session: Avoids state corruption where tap callback stops firing (02-01)
 - Offline recognition only: requiresOnDeviceRecognition = true for privacy-first approach (02-01)
 - 30-second transcription timeout: Prevents infinite waits if recognizer unresponsive (02-01)
+- endAudio() before stopCapture(): Signals recognizer to finalize transcription (02-02)
+- Clipboard verification via read-back: Catches race conditions with clipboard managers (02-02)
+- CheckedContinuation for transcription await: Clean async/await for callback-based API (02-02)
 
 ### Pending Todos
 
@@ -65,8 +68,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-01T14:56:02Z
-Stopped at: Completed 02-01-PLAN.md (Audio Capture & Transcription Foundation)
+Last session: 2026-02-01T14:57:28Z
+Stopped at: Completed 02-02-PLAN.md (Recording Pipeline Integration)
 Resume file: None
 
 ---

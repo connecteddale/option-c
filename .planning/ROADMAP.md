@@ -32,10 +32,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User can switch between toggle and push-to-talk modes via menu
   5. User can quit app via menu option
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (will be defined during plan-phase)
+- [ ] 01-01-PLAN.md — Project setup with MenuBarExtra and state management
+- [ ] 01-02-PLAN.md — Hotkey integration and menu content
 
 ### Phase 2: Core Recording & Transcription
 **Goal**: User can speak into microphone and get transcribed text on clipboard
@@ -83,7 +84,7 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Menu Bar | 0/TBD | Not started | - |
+| 1. Foundation & Menu Bar | 0/2 | Not started | - |
 | 2. Core Recording & Transcription | 0/TBD | Not started | - |
 | 3. Feedback & Error Handling | 0/TBD | Not started | - |
 

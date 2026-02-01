@@ -6,7 +6,7 @@ struct OptionCApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text("Menu Content")
+            MenuBarView(appState: appState)
         } label: {
             Image(systemName: appState.menuBarIcon)
                 .symbolRenderingMode(.multicolor)

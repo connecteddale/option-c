@@ -1,6 +1,39 @@
 import AVFoundation
 import Speech
 
+/// Executes an async operation with a timeout.
+/// Uses withThrowingTaskGroup to race the operation against a sleep.
+/// - Parameters:
+///   - seconds: Maximum time to wait for the operation
+///   - operation: The async operation to execute
+/// - Returns: The result of the operation
+/// - Throws: AppError.transcriptionTimeout if the operation doesn't complete in time
+func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        // Add timeout task
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw AppError.transcriptionTimeout
+        }
+
+        // Add actual operation
+        group.addTask {
+            try await operation()
+        }
+
+        // Wait for first to complete
+        let result = try await group.next()!
+
+        // Cancel remaining tasks
+        group.cancelAll()
+
+        return result
+    }
+}
+
 /// Orchestrates the audio capture and transcription pipeline.
 /// Coordinates AudioCaptureManager and TranscriptionEngine to provide
 /// a simple start/stop interface for the voice-to-clipboard flow.

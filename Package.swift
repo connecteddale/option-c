@@ -16,7 +16,8 @@ let package = Package(
         .executableTarget(
             name: "OptionC",
             dependencies: ["KeyboardShortcuts"],
-            path: "Sources/OptionC"
+            path: "Sources/OptionC",
+            exclude: ["Resources/Info.plist"]
         )
     ]
 )

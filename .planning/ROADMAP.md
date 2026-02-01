@@ -52,10 +52,11 @@ Plans:
   4. Audio is transcribed using on-device Speech framework (no internet required)
   5. Transcribed text appears on clipboard automatically when ready
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD (will be defined during plan-phase)
+- [ ] 02-01-PLAN.md — Audio infrastructure (AudioCaptureManager + TranscriptionEngine)
+- [ ] 02-02-PLAN.md — Integration and clipboard (RecordingController + AppState wiring)
 
 ### Phase 3: Feedback & Error Handling
 **Goal**: User receives clear feedback on success/failure and understands permission issues
@@ -72,10 +73,12 @@ Plans:
   5. User sees clear message if speech recognition permission is missing
   6. Timeout notification appears if no speech detected for 30 seconds
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (will be defined during plan-phase)
+- [ ] 03-01-PLAN.md — Error types and permission handling (AppError, PermissionManager)
+- [ ] 03-02-PLAN.md — Notification system (NotificationManager, permission request on launch)
+- [ ] 03-03-PLAN.md — State machine integration (auto-reset, timeout, wiring)
 
 ## Progress
 
@@ -85,9 +88,9 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Menu Bar | 0/2 | Not started | - |
-| 2. Core Recording & Transcription | 0/TBD | Not started | - |
-| 3. Feedback & Error Handling | 0/TBD | Not started | - |
+| 2. Core Recording & Transcription | 0/2 | Not started | - |
+| 3. Feedback & Error Handling | 0/3 | Not started | - |
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-02-01*
+*Last updated: 2026-02-01 (Phase 3 plans created)*

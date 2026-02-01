@@ -71,30 +71,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | TBD | Pending |
-| CORE-02 | TBD | Pending |
-| CORE-03 | TBD | Pending |
-| CORE-04 | TBD | Pending |
-| MENU-01 | TBD | Pending |
-| MENU-02 | TBD | Pending |
-| MENU-03 | TBD | Pending |
-| MENU-04 | TBD | Pending |
-| MENU-05 | TBD | Pending |
-| TRAN-01 | TBD | Pending |
-| TRAN-02 | TBD | Pending |
-| TRAN-03 | TBD | Pending |
-| FEED-01 | TBD | Pending |
-| FEED-02 | TBD | Pending |
-| FEED-03 | TBD | Pending |
-| ERRH-01 | TBD | Pending |
-| ERRH-02 | TBD | Pending |
-| ERRH-03 | TBD | Pending |
+| CORE-01 | Phase 2 | Pending |
+| CORE-02 | Phase 2 | Pending |
+| CORE-03 | Phase 2 | Pending |
+| CORE-04 | Phase 1 | Pending |
+| MENU-01 | Phase 1 | Pending |
+| MENU-02 | Phase 1 | Pending |
+| MENU-03 | Phase 1 | Pending |
+| MENU-04 | Phase 1 | Pending |
+| MENU-05 | Phase 1 | Pending |
+| TRAN-01 | Phase 2 | Pending |
+| TRAN-02 | Phase 2 | Pending |
+| TRAN-03 | Phase 2 | Pending |
+| FEED-01 | Phase 3 | Pending |
+| FEED-02 | Phase 3 | Pending |
+| FEED-03 | Phase 3 | Pending |
+| ERRH-01 | Phase 3 | Pending |
+| ERRH-02 | Phase 3 | Pending |
+| ERRH-03 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-01*
-*Last updated: 2026-02-01 after initial definition*
+*Last updated: 2026-02-01 after roadmap creation*

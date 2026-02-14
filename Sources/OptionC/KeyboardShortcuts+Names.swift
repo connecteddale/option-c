@@ -1,5 +1,6 @@
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    static let toggleRecording = Self("toggleRecording", default: .init(.c, modifiers: [.option]))
+    // Using Control+Shift+Space - intuitive "press to talk" shortcut
+    static let toggleRecording = Self("toggleRecording", default: .init(.space, modifiers: [.control, .shift]))
 }

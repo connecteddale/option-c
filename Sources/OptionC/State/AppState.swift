@@ -1,5 +1,7 @@
 import SwiftUI
 import KeyboardShortcuts
+import Carbon.HIToolbox
+import Cocoa
 
 /// Centralized state coordinator for the Option-C app
 @MainActor
@@ -8,13 +10,28 @@ class AppState: ObservableObject {
     @Published var currentState: RecordingState = .idle
 
     /// User preference for recording mode (persisted)
-    @AppStorage("recordingMode") var recordingMode: RecordingMode = .toggle
+    @AppStorage("recordingMode") var recordingMode: RecordingMode = .pushToTalk
+
+    /// Whether to automatically paste after copying to clipboard
+    @AppStorage("autoPasteEnabled") var autoPasteEnabled: Bool = false
+
+    /// Selected Whisper model for transcription
+    @AppStorage("selectedWhisperModel") var selectedWhisperModel: String = "openai_whisper-base"
+
+    /// Whether Whisper model is loaded and ready
+    @Published var whisperModelLoaded: Bool = false
+
+    /// Whether Whisper model is currently loading
+    @Published var whisperModelLoading: Bool = false
 
     /// Controller that orchestrates audio capture and transcription
     private let recordingController = RecordingController()
 
     /// Permission manager for checking and requesting system permissions
     private let permissionManager = PermissionManager()
+
+    /// Current model loading task (cancellable)
+    private var modelLoadTask: Task<Void, Never>?
 
     init() {
         // Register both key down and key up handlers for dual-mode support
@@ -24,14 +41,69 @@ class AppState: ObservableObject {
         KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [weak self] in
             self?.handleKeyUp()
         }
+
+        // Load Whisper model on startup
+        modelLoadTask = Task {
+            await loadWhisperModel()
+        }
+    }
+
+    /// Load the selected Whisper model
+    func loadWhisperModel() async {
+        whisperModelLoading = true
+        whisperModelLoaded = false
+        do {
+            try await WhisperTranscriptionEngine.shared.loadModel(selectedWhisperModel)
+            guard !Task.isCancelled else {
+                whisperModelLoading = false
+                return
+            }
+            whisperModelLoaded = true
+        } catch {
+            guard !Task.isCancelled else {
+                whisperModelLoading = false
+                return
+            }
+            print("Failed to load Whisper model: \(error)")
+            whisperModelLoaded = false
+        }
+        whisperModelLoading = false
+    }
+
+    /// Change Whisper model — cancels any in-progress download
+    func changeWhisperModel(to modelName: String) {
+        // Cancel current download/load
+        modelLoadTask?.cancel()
+
+        selectedWhisperModel = modelName
+        whisperModelLoaded = false
+        modelLoadTask = Task {
+            await loadWhisperModel()
+        }
+    }
+
+    /// Track if we need to stop recording when key is released (for push-to-talk)
+    private var pendingStopOnKeyUp = false
+
+    /// Whether the app can accept a new recording right now
+    private var canStartRecording: Bool {
+        guard whisperModelLoaded, !whisperModelLoading else { return false }
+        switch currentState {
+        case .idle, .success, .error:
+            return true
+        case .recording, .processing:
+            return false
+        }
     }
 
     /// Handle key down event for push-to-talk mode
     func handleKeyDown() {
-        guard currentState == .idle else { return }
+        guard canStartRecording else { return }
 
         if recordingMode == .pushToTalk {
             // Push-to-talk: start on key down
+            currentState = .idle // Reset from success/error immediately
+            pendingStopOnKeyUp = true
             Task { await startRecording() }
         }
         // Toggle mode: do nothing on key down
@@ -42,37 +114,46 @@ class AppState: ObservableObject {
         switch recordingMode {
         case .toggle:
             // Toggle: flip state on key up
-            switch currentState {
-            case .idle:
+            if canStartRecording {
+                currentState = .idle // Reset from success/error immediately
                 Task { await startRecording() }
-            case .recording:
+            } else if currentState == .recording {
                 Task { await stopRecording() }
-            case .processing, .success, .error:
-                break // Ignore while processing or in transient states
             }
+            // Ignore during .processing
         case .pushToTalk:
             // Push-to-talk: stop on key up
-            if currentState == .recording {
-                Task { await stopRecording() }
+            if pendingStopOnKeyUp {
+                pendingStopOnKeyUp = false
+                if currentState == .recording {
+                    Task { await stopRecording() }
+                } else {
+                    // Recording hasn't started yet, mark that we should stop when it does
+                    shouldStopAfterStart = true
+                }
             }
         }
     }
 
+    /// Flag to stop recording immediately after it starts (key released before recording began)
+    private var shouldStopAfterStart = false
+
     /// Start recording after checking permissions
     private func startRecording() async {
-        // Check microphone permission
-        let micResult = await permissionManager.requestMicrophonePermission()
-        guard case .success = micResult else {
-            if case .failure(let error) = micResult {
-                transitionToError(error)
-            }
+        // Check if Whisper model is loaded
+        guard whisperModelLoaded else {
+            pendingStopOnKeyUp = false
+            shouldStopAfterStart = false
+            transitionToError(.recordingFailed(underlying: TranscriptionError.modelNotLoaded))
             return
         }
 
-        // Check speech recognition permission
-        let speechResult = await permissionManager.requestSpeechRecognitionPermission()
-        guard case .success = speechResult else {
-            if case .failure(let error) = speechResult {
+        // Check microphone permission
+        let micResult = await permissionManager.requestMicrophonePermission()
+        guard case .success = micResult else {
+            pendingStopOnKeyUp = false
+            shouldStopAfterStart = false
+            if case .failure(let error) = micResult {
                 transitionToError(error)
             }
             return
@@ -82,7 +163,15 @@ class AppState: ObservableObject {
         do {
             try recordingController.startRecording()
             currentState = .recording
+
+            // Check if key was released while we were starting
+            if shouldStopAfterStart {
+                shouldStopAfterStart = false
+                Task { await stopRecording() }
+            }
         } catch {
+            pendingStopOnKeyUp = false
+            shouldStopAfterStart = false
             transitionToError(.recordingFailed(underlying: error))
         }
     }
@@ -90,54 +179,113 @@ class AppState: ObservableObject {
     /// Stop recording and process transcription
     private func stopRecording() async {
         currentState = .processing
+        NSLog("[OptionC] Processing started")
 
         do {
-            // Wrap transcription in 30-second timeout
             let transcription = try await withTimeout(seconds: 30) {
-                await self.recordingController.stopRecording()
+                NSLog("[OptionC] Calling recordingController.stopRecording")
+                let result = await self.recordingController.stopRecording()
+                NSLog("[OptionC] Transcription returned: \(result != nil ? "\(result!.prefix(50))..." : "nil")")
+                return result
             }
 
             // Check if we got valid transcription
-            guard let text = transcription, !text.isEmpty else {
+            guard let rawText = transcription, !rawText.isEmpty else {
+                NSLog("[OptionC] No speech detected")
                 transitionToError(.noSpeechDetected)
                 return
             }
 
-            // Transcription already copied to clipboard by RecordingController
+            // Apply text replacements
+            let text = TextReplacementManager.shared.apply(to: rawText)
+
+            // Copy to clipboard
+            try ClipboardManager.copy(text)
+            NSLog("[OptionC] Copied to clipboard")
+
+            // Auto-paste if enabled
+            if autoPasteEnabled {
+                // Delay to ensure clipboard is ready and the frontmost app has focus
+                try? await Task.sleep(for: .milliseconds(500))
+                simulatePaste()
+            }
+
             transitionToSuccess(transcription: text)
 
         } catch AppError.transcriptionTimeout {
-            // Timeout gets specific notification
-            NotificationManager.shared.showTimeout()
-            currentState = .idle
+            NSLog("[OptionC] Transcription timed out after 30s")
+            transitionToError(.transcriptionTimeout)
 
         } catch let error as AppError {
+            NSLog("[OptionC] AppError: \(error)")
             transitionToError(error)
 
         } catch {
+            NSLog("[OptionC] Error: \(error)")
             transitionToError(.recordingFailed(underlying: error))
         }
     }
 
-    /// Transition to success state with notification and auto-reset to idle
+    /// Whether accessibility permission is currently granted
+    var isAccessibilityGranted: Bool {
+        AXIsProcessTrusted()
+    }
+
+    /// Request Accessibility permission (shows system prompt if not yet granted)
+    func requestAccessibilityIfNeeded() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// Simulate Cmd+V keystroke to paste clipboard contents
+    private func simulatePaste() {
+        guard AXIsProcessTrusted() else {
+            NSLog("[OptionC] Paste failed: Accessibility permission not granted")
+            requestAccessibilityIfNeeded()
+            return
+        }
+
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let vKeyCode: CGKeyCode = 0x09 // kVK_ANSI_V
+
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
+            NSLog("[OptionC] Paste failed: could not create CGEvent")
+            return
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+
+        keyDown.post(tap: .cgSessionEventTap)
+        usleep(50_000) // 50ms between key down and key up
+        keyUp.post(tap: .cgSessionEventTap)
+        NSLog("[OptionC] Paste keystroke sent")
+    }
+
+    /// Transition to success state with brief icon flash then back to idle
     private func transitionToSuccess(transcription: String) {
         currentState = .success(transcription: transcription)
-        NotificationManager.shared.showSuccess(transcription: transcription)
 
         Task {
-            try? await Task.sleep(for: .seconds(2))
-            currentState = .idle
+            try? await Task.sleep(for: .milliseconds(750))
+            // Only reset if still in success (user may have started a new recording)
+            if case .success = currentState {
+                currentState = .idle
+            }
         }
     }
 
-    /// Transition to error state with notification and auto-reset to idle
+    /// Transition to error state with brief icon flash then back to idle
     private func transitionToError(_ error: AppError) {
         currentState = .error(error)
-        NotificationManager.shared.showError(error)
 
         Task {
-            try? await Task.sleep(for: .seconds(3))
-            currentState = .idle
+            try? await Task.sleep(for: .seconds(1))
+            // Only reset if still in error (user may have started a new recording)
+            if case .error = currentState {
+                currentState = .idle
+            }
         }
     }
 
@@ -145,15 +293,18 @@ class AppState: ObservableObject {
     var menuBarIcon: String {
         switch currentState {
         case .idle:
-            return "mic.circle"
+            if whisperModelLoading {
+                return "arrow.down.circle"
+            }
+            return whisperModelLoaded ? "mic" : "mic.slash"
         case .recording:
-            return "mic.circle.fill"
+            return "mic.fill"
         case .processing:
-            return "waveform.circle"
+            return "ellipsis"
         case .success:
-            return "checkmark.circle.fill"
+            return "checkmark"
         case .error:
-            return "exclamationmark.circle"
+            return "xmark"
         }
     }
 }

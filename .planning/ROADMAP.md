@@ -12,9 +12,9 @@ Option-C delivers voice-to-clipboard automation via a macOS menu bar app. The ro
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation & Menu Bar** - Menu bar UI with state visualization and hotkey detection
-- [ ] **Phase 2: Core Recording & Transcription** - Voice-to-clipboard workflow (record → transcribe → clipboard)
-- [ ] **Phase 3: Feedback & Error Handling** - Production UX with notifications and permission handling
+- [x] **Phase 1: Foundation & Menu Bar** - Menu bar UI with state visualization and hotkey detection
+- [x] **Phase 2: Core Recording & Transcription** - Voice-to-clipboard workflow (record → transcribe → clipboard)
+- [x] **Phase 3: Feedback & Error Handling** - Production UX with notifications and permission handling
 
 ## Phase Details
 
@@ -35,8 +35,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project setup with MenuBarExtra and state management
-- [ ] 01-02-PLAN.md — Hotkey integration and menu content
+- [x] 01-01-PLAN.md — Project setup with MenuBarExtra and state management
+- [x] 01-02-PLAN.md — Hotkey integration and menu content
 
 ### Phase 2: Core Recording & Transcription
 **Goal**: User can speak into microphone and get transcribed text on clipboard
@@ -55,8 +55,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Audio infrastructure (AudioCaptureManager + TranscriptionEngine)
-- [ ] 02-02-PLAN.md — Integration and clipboard (RecordingController + AppState wiring)
+- [x] 02-01-PLAN.md — Audio infrastructure (AudioCaptureManager + TranscriptionEngine)
+- [x] 02-02-PLAN.md — Integration and clipboard (RecordingController + AppState wiring)
 
 ### Phase 3: Feedback & Error Handling
 **Goal**: User receives clear feedback on success/failure and understands permission issues
@@ -76,9 +76,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Error types and permission handling (AppError, PermissionManager)
-- [ ] 03-02-PLAN.md — Notification system (NotificationManager, permission request on launch)
-- [ ] 03-03-PLAN.md — State machine integration (auto-reset, timeout, wiring)
+- [x] 03-01-PLAN.md — Error types and permission handling (AppError, PermissionManager)
+- [x] 03-02-PLAN.md — Notification system (NotificationManager, permission request on launch)
+- [x] 03-03-PLAN.md — State machine integration (auto-reset, timeout, wiring)
 
 ## Progress
 
@@ -87,10 +87,10 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Menu Bar | 0/2 | Not started | - |
-| 2. Core Recording & Transcription | 0/2 | Not started | - |
-| 3. Feedback & Error Handling | 0/3 | Not started | - |
+| 1. Foundation & Menu Bar | 2/2 | Complete | 2026-02-01 |
+| 2. Core Recording & Transcription | 2/2 | Complete | 2026-02-01 |
+| 3. Feedback & Error Handling | 3/3 | Complete | 2026-02-01 |
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-02-01 (Phase 3 plans created)*
+*Last updated: 2026-02-01 (All phases complete)*

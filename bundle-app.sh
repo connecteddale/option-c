@@ -29,7 +29,14 @@ cp Sources/OptionC/Resources/Info.plist "${CONTENTS_DIR}/Info.plist"
 echo -n "APPL????" > "${CONTENTS_DIR}/PkgInfo"
 
 # Sign with persistent identity so macOS keeps accessibility permissions across rebuilds
-codesign --force --sign "OptionC Dev" --deep "${BUNDLE_DIR}"
+# Falls back to ad-hoc signing if the certificate doesn't exist
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "OptionC Dev"; then
+    codesign --force --sign "OptionC Dev" --deep "${BUNDLE_DIR}"
+else
+    echo "Warning: 'OptionC Dev' certificate not found, using ad-hoc signing."
+    echo "See README.md for certificate setup instructions."
+    codesign --force --sign - --deep "${BUNDLE_DIR}"
+fi
 
 echo "Created ${BUNDLE_DIR}"
 echo "Run with: open '${BUNDLE_DIR}'"

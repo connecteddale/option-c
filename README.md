@@ -32,9 +32,9 @@ After transcription, the text is copied to the clipboard. With **auto-paste** en
 
 ## Features
 
-- **Multiple Whisper models** — Choose between Tiny (~40MB), Base (~150MB), Small (~500MB), and Large (~3GB) depending on your speed/accuracy preference. Models are downloaded once and cached.
+- **Multiple Whisper models** — Choose between Tiny (~40MB), Base (~150MB), Small (~500MB), and Large (~3GB) depending on your speed/accuracy preference. Models are downloaded once and cached. A warm-up inference runs after loading to avoid slow first transcriptions.
 - **Auto-paste** — Automatically paste transcription into the active app after recording. Requires Accessibility permission.
-- **Text replacements** — Define find/replace rules to fix recurring transcription quirks (e.g. "dot dot dot" → "..."). Smart matching handles punctuation variations Whisper may add between words. Supports `\n` and `\t` escape sequences.
+- **Text replacements** — Define find/replace rules to fix recurring transcription quirks (e.g. "dot dot dot" → "..."). Rules are editable inline. Smart matching handles punctuation variations Whisper may add between words. Structural replacements (containing `\n`) and punctuation replacements absorb surrounding punctuation to prevent doubling. Supports `\n` and `\t` escape sequences.
 - **Menu bar feedback** — The menu bar icon changes to reflect the current state: mic (ready), filled mic (recording), ellipsis (processing), checkmark (done), or X (error).
 
 ## Permissions

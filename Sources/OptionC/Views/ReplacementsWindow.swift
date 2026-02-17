@@ -41,21 +41,21 @@ struct ReplacementsWindow: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(manager.replacements) { item in
-                        HStack {
-                            Text(item.find)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach($manager.replacements) { $item in
+                        HStack(spacing: 8) {
+                            TextField("Find", text: $item.find)
+                                .textFieldStyle(.roundedBorder)
                             Image(systemName: "arrow.right")
                                 .foregroundColor(.secondary)
                                 .font(.caption)
-                            Text(item.replace.isEmpty ? "(remove)" : item.replace)
-                                .fontWeight(.medium)
-                                .foregroundColor(item.replace.isEmpty ? .secondary : .primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            TextField("Replace", text: $item.replace)
+                                .textFieldStyle(.roundedBorder)
+                            Button(action: { manager.remove(id: item.id) }) {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red.opacity(0.7))
+                            }
+                            .buttonStyle(.plain)
                         }
-                    }
-                    .onDelete { offsets in
-                        manager.remove(at: offsets)
                     }
                 }
             }

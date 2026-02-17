@@ -1,36 +1,51 @@
 import AVFoundation
 import Speech
 
-/// Executes an async operation with a timeout.
-/// Uses withThrowingTaskGroup to race the operation against a sleep.
-/// - Parameters:
-///   - seconds: Maximum time to wait for the operation
-///   - operation: The async operation to execute
-/// - Returns: The result of the operation
-/// - Throws: AppError.transcriptionTimeout if the operation doesn't complete in time
+/// Thread-safe flag ensuring a continuation is resumed exactly once.
+private final class TimeoutState: @unchecked Sendable {
+    private var completed = false
+    private let lock = NSLock()
+
+    func tryComplete() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if completed { return false }
+        completed = true
+        return true
+    }
+}
+
+/// Executes an async operation with a hard timeout.
+/// Uses independent Tasks so the timeout fires even if the operation blocks.
+/// The operation continues running in the background but its result is discarded.
 func withTimeout<T: Sendable>(
     seconds: TimeInterval,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        // Add timeout task
-        group.addTask {
-            try await Task.sleep(for: .seconds(seconds))
-            throw AppError.transcriptionTimeout
+    try await withCheckedThrowingContinuation { continuation in
+        let state = TimeoutState()
+
+        // Operation task
+        Task {
+            do {
+                let result = try await operation()
+                if state.tryComplete() {
+                    continuation.resume(returning: result)
+                }
+            } catch {
+                if state.tryComplete() {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
 
-        // Add actual operation
-        group.addTask {
-            try await operation()
+        // Timeout task
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            if state.tryComplete() {
+                continuation.resume(throwing: AppError.transcriptionTimeout)
+            }
         }
-
-        // Wait for first to complete
-        let result = try await group.next()!
-
-        // Cancel remaining tasks
-        group.cancelAll()
-
-        return result
     }
 }
 

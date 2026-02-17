@@ -30,6 +30,10 @@ final class TextReplacementManager: ObservableObject {
     /// Apply all replacements to a transcribed string.
     /// For multi-word find phrases, ignores punctuation/whitespace variations
     /// between words (e.g. "dot dot dot" matches "dot, dot, dot").
+    /// Structural replacements (containing \n) absorb surrounding punctuation
+    /// and whitespace that WhisperKit adds around spoken commands.
+    /// Punctuation replacements (e.g. "full stop" → ".") absorb preceding
+    /// punctuation to prevent doubling.
     /// Supports \n and \t in both find and replace strings.
     func apply(to text: String) -> String {
         var result = text
@@ -39,11 +43,44 @@ final class TextReplacementManager: ObservableObject {
             let replaceText = unescape(r.replace)
             let findText = unescape(r.find)
             let words = findText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+
+            let isStructural = replaceText.contains("\n") || replaceText.contains("\t")
+            let isPunctuation = !isStructural && !replaceText.isEmpty &&
+                replaceText.allSatisfy { ".,;:!?…\"'()-".contains($0) }
+
+            // Build core pattern (the find phrase itself)
+            let corePattern: String
             if words.count > 1 {
-                // Build regex: words separated by any mix of whitespace and punctuation
                 let escaped = words.map { NSRegularExpression.escapedPattern(for: $0) }
-                let pattern = escaped.joined(separator: "[\\s,;.!?]+")
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                corePattern = escaped.joined(separator: "[\\s,;.!?]+")
+            } else {
+                corePattern = NSRegularExpression.escapedPattern(for: findText)
+            }
+
+            if isStructural || isPunctuation {
+                // Use regex with punctuation absorption
+                let fullPattern: String
+                if isStructural {
+                    // Absorb leading whitespace + trailing punctuation & whitespace
+                    // e.g. "Hello world. New paragraph. Next" → "Hello world.\n\nNext"
+                    fullPattern = "\\s*" + corePattern + "[.!?,;:]*\\s*"
+                } else {
+                    // Absorb one preceding punctuation mark (prevents doubling)
+                    // + trailing punctuation & whitespace
+                    // e.g. "Hello world. Full stop." → "Hello world."
+                    fullPattern = "[.!?,;:]?\\s*" + corePattern + "[.!?,;:]*"
+                }
+
+                if let regex = try? NSRegularExpression(pattern: fullPattern, options: .caseInsensitive) {
+                    result = regex.stringByReplacingMatches(
+                        in: result,
+                        range: NSRange(result.startIndex..., in: result),
+                        withTemplate: NSRegularExpression.escapedTemplate(for: replaceText)
+                    )
+                }
+            } else if words.count > 1 {
+                // Normal multi-word: existing behaviour
+                if let regex = try? NSRegularExpression(pattern: corePattern, options: .caseInsensitive) {
                     result = regex.stringByReplacingMatches(
                         in: result,
                         range: NSRange(result.startIndex..., in: result),
@@ -51,11 +88,55 @@ final class TextReplacementManager: ObservableObject {
                     )
                 }
             } else {
+                // Normal single-word: simple string replace
                 result = result.replacingOccurrences(
                     of: findText, with: replaceText, options: .caseInsensitive
                 )
             }
         }
+
+        // Cleanup pass for residual punctuation artifacts
+        result = cleanupPunctuation(result)
+
+        return result
+    }
+
+    /// Fix punctuation artifacts left after replacements.
+    private func cleanupPunctuation(_ text: String) -> String {
+        var result = text
+
+        // Collapse runs of the same punctuation (e.g. ".." → ".", ",," → ",")
+        if let regex = try? NSRegularExpression(pattern: "([.!?,;:])\\1+") {
+            result = regex.stringByReplacingMatches(
+                in: result, range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1"
+            )
+        }
+
+        // Collapse same punctuation separated by whitespace (e.g. ". ." → ".")
+        if let regex = try? NSRegularExpression(pattern: "([.!?,;:])\\s+\\1") {
+            result = regex.stringByReplacingMatches(
+                in: result, range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1"
+            )
+        }
+
+        // Remove orphan punctuation at the start of a line
+        if let regex = try? NSRegularExpression(pattern: "\\n[.!?,;:]\\s*") {
+            result = regex.stringByReplacingMatches(
+                in: result, range: NSRange(result.startIndex..., in: result),
+                withTemplate: "\n"
+            )
+        }
+
+        // Remove orphan punctuation at the very start of the text
+        if let regex = try? NSRegularExpression(pattern: "^[.!?,;:]\\s*") {
+            result = regex.stringByReplacingMatches(
+                in: result, range: NSRange(result.startIndex..., in: result),
+                withTemplate: ""
+            )
+        }
+
         return result
     }
 

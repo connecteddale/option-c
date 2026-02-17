@@ -55,6 +55,14 @@ actor WhisperTranscriptionEngine {
 
         whisperKit = try await WhisperKit(config)
         currentModel = modelName
+
+        // Warm up the Neural Engine by running a short silent transcription.
+        // First inference triggers CoreML compilation which can take 30-60s
+        // for larger models. Better to pay this cost during loading than
+        // during the user's first real transcription.
+        let silence = [Float](repeating: 0, count: 16000) // 1s of silence
+        let warmupOptions = DecodingOptions(language: "en", suppressBlank: true)
+        _ = try? await whisperKit?.transcribe(audioArray: silence, decodeOptions: warmupOptions)
     }
 
     /// Transcribe audio from a file URL

@@ -82,6 +82,35 @@ actor WhisperTranscriptionEngine {
         return text
     }
 
+    /// Phrases WhisperKit hallucinates on blank or near-silent audio.
+    /// Matched case-insensitively after trimming whitespace and punctuation.
+    private static let blankAudioHallucinations: Set<String> = [
+        "thank you",
+        "thanks for watching",
+        "thanks for listening",
+        "thank you for watching",
+        "thank you for listening",
+        "you",
+        "the end",
+        "bye",
+        "so",
+        "okay",
+        "um",
+        "uh",
+        "hmm",
+        "ah",
+    ]
+
+    /// True if the text looks like a WhisperKit hallucination on silent audio.
+    private func isBlankAudioHallucination(_ text: String) -> Bool {
+        let stripped = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .punctuationCharacters)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return stripped.isEmpty || Self.blankAudioHallucinations.contains(stripped)
+    }
+
     /// Transcribe audio from raw audio samples
     func transcribe(audioSamples: [Float]) async throws -> String {
         guard let whisperKit = whisperKit else {
@@ -104,9 +133,11 @@ actor WhisperTranscriptionEngine {
             decodeOptions: options
         )
 
-        // Combine all segments into final text
+        // Filter out segments that are blank-audio hallucinations,
+        // then combine remaining segments into final text
         let text = results
             .compactMap { $0.text }
+            .filter { !isBlankAudioHallucination($0) }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 

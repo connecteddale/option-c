@@ -98,6 +98,9 @@ final class TextReplacementManager: ObservableObject {
         // Cleanup pass for residual punctuation artifacts
         result = cleanupPunctuation(result)
 
+        // Capitalise the first letter of every line
+        result = capitaliseLineStarts(result)
+
         return result
     }
 
@@ -135,6 +138,42 @@ final class TextReplacementManager: ObservableObject {
                 in: result, range: NSRange(result.startIndex..., in: result),
                 withTemplate: ""
             )
+        }
+
+        return result
+    }
+
+    /// Capitalise the first letter of every line and the start of the text.
+    /// Handles lines that begin with optional whitespace.
+    private func capitaliseLineStarts(_ text: String) -> String {
+        var result = text
+
+        // Capitalise the very first letter of the text
+        if let first = result.firstIndex(where: { $0.isLetter }) {
+            result.replaceSubrange(first...first, with: String(result[first]).uppercased())
+        }
+
+        // Capitalise the first letter after each newline
+        if let regex = try? NSRegularExpression(pattern: "\\n(\\s*)(\\p{Ll})") {
+            let nsRange = NSRange(result.startIndex..., in: result)
+            // Walk matches in reverse so index offsets stay valid
+            let matches = regex.matches(in: result, range: nsRange).reversed()
+            for match in matches {
+                guard let letterRange = Range(match.range(at: 2), in: result) else { continue }
+                let upper = String(result[letterRange]).uppercased()
+                result.replaceSubrange(letterRange, with: upper)
+            }
+        }
+
+        // Capitalise the first letter after sentence-ending punctuation (. ! ?)
+        if let regex = try? NSRegularExpression(pattern: "([.!?])\\s+(\\p{Ll})") {
+            let nsRange = NSRange(result.startIndex..., in: result)
+            let matches = regex.matches(in: result, range: nsRange).reversed()
+            for match in matches {
+                guard let letterRange = Range(match.range(at: 2), in: result) else { continue }
+                let upper = String(result[letterRange]).uppercased()
+                result.replaceSubrange(letterRange, with: upper)
+            }
         }
 
         return result

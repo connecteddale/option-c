@@ -19,15 +19,15 @@ Requirements for milestone v1.1 — Smart Text Processing. Each maps to roadmap 
 
 - [x] **LLM-01**: App calls Ollama HTTP API (localhost:11434) with configurable timeout
 - [x] **LLM-02**: LLM provider is behind a protocol so Ollama can be swapped for Anthropic API later
-- [ ] **LLM-03**: App checks Ollama availability and model presence before enabling AI toggle
+- [x] **LLM-03**: App checks Ollama availability and model presence before enabling AI toggle
 - [x] **LLM-04**: System prompt encodes all formatting rules (times, numbers, currencies, punctuation, spelling)
 
 ### UX
 
 - [x] **UX-01**: User can toggle AI processing on/off via menu bar dropdown
 - [x] **UX-02**: Menu bar icon shows distinct state when AI is processing
-- [ ] **UX-03**: User sees clear error message if Ollama is not running or model is missing
-- [ ] **UX-04**: If AI processing fails, raw WhisperKit text is delivered to clipboard (never lose transcription)
+- [x] **UX-03**: User sees clear error message if Ollama is not running or model is missing
+- [x] **UX-04**: If AI processing fails, raw WhisperKit text is delivered to clipboard (never lose transcription)
 
 ## Future Requirements
 
@@ -69,12 +69,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROC-05 | Phase 5 | Complete |
 | LLM-01 | Phase 4 | Complete |
 | LLM-02 | Phase 4 | Complete |
-| LLM-03 | Phase 5 | Pending |
+| LLM-03 | Phase 5 | Complete |
 | LLM-04 | Phase 5 | Complete |
 | UX-01 | Phase 4 | Complete |
 | UX-02 | Phase 4 | Complete |
-| UX-03 | Phase 5 | Pending |
-| UX-04 | Phase 5 | Pending |
+| UX-03 | Phase 5 | Complete |
+| UX-04 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 13 total

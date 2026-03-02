@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 Phase: 4 of 5 (v1.1 — Ollama Engine and Pipeline Integration)
 Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-03-02 — Roadmap created for v1.1 (Phases 4-5)
+Status: Plans created, ready to execute
+Last activity: 2026-03-02 — Phase 4 plans created (2 plans, 2 waves)
 
 Progress: [######----] 60% (3/5 phases complete, v1.0 shipped)
 

@@ -75,11 +75,11 @@ Plans:
   2. Menu bar shows a distinct state (different icon or label) while Ollama is processing
   3. When AI is on and Ollama is available, transcription passes through OllamaProcessingEngine before reaching clipboard
   4. When AI is off, the pipeline behaves identically to v1.0 (no change to existing behaviour)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: OllamaProcessingEngine — URLSession wrapper, protocol definition, request/response parsing
-- [ ] 04-02: AppState integration — pipeline wiring, aiProcessingEnabled toggle, aiProcessing state, MenuBarView toggle
+- [ ] 04-01-PLAN.md — OllamaProcessingEngine: LLMProcessingProvider protocol, URLSession wrapper, Codable models, AppError case
+- [ ] 04-02-PLAN.md — AppState integration: pipeline wiring, aiProcessingEnabled toggle, aiProcessing state, MenuBarView toggle, distinct icon
 
 #### Phase 5: Formatting Quality and Error Resilience
 **Goal**: User's transcriptions are correctly formatted across punctuation, times, numbers, and currencies, and the app handles Ollama being unavailable without losing the transcription
@@ -112,4 +112,4 @@ Phases execute in numeric order: 4 -> 5
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-03-02 (v1.1 roadmap added, Phases 4-5)*
+*Last updated: 2026-03-02 (Phase 4 plans created)*

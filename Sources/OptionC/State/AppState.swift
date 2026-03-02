@@ -33,6 +33,12 @@ class AppState: ObservableObject {
     /// Whether Ollama AI processing is in progress (drives UI icon state)
     @Published var aiProcessing: Bool = false
 
+    /// Whether Ollama is available (checked when toggle is enabled)
+    @Published var ollamaAvailable: Bool = true  // Optimistic default — checked on toggle enable
+
+    /// User-facing availability message (nil when available)
+    @Published var ollamaAvailabilityMessage: String? = nil
+
     /// Swappable LLM provider — creates engine with user's model preference (LLM-02)
     private var llmProvider: any LLMProcessingProvider {
         OllamaProcessingEngine(model: ollamaModel)
@@ -82,6 +88,23 @@ class AppState: ObservableObject {
             whisperModelLoaded = false
         }
         whisperModelLoading = false
+    }
+
+    /// Check Ollama availability and update state
+    func checkOllamaAvailability() async {
+        let engine = OllamaProcessingEngine(model: ollamaModel)
+        let status = await engine.checkAvailability()
+        switch status {
+        case .available:
+            ollamaAvailable = true
+            ollamaAvailabilityMessage = nil
+        case .ollamaNotRunning:
+            ollamaAvailable = false
+            ollamaAvailabilityMessage = "Ollama is not running. Start it with: ollama serve"
+        case .modelNotFound(let configured):
+            ollamaAvailable = false
+            ollamaAvailabilityMessage = "Model '\(configured)' not found. Run: ollama pull \(configured)"
+        }
     }
 
     /// Change Whisper model — cancels any in-progress download

@@ -237,6 +237,24 @@ struct MenuBarView: View {
 
             Toggle("AI text cleanup (Ollama)", isOn: $appState.aiProcessingEnabled)
                 .toggleStyle(.checkbox)
+                .onChange(of: appState.aiProcessingEnabled) { _, enabled in
+                    if enabled {
+                        Task { await appState.checkOllamaAvailability() }
+                    }
+                }
+
+            if appState.aiProcessingEnabled && !appState.ollamaAvailable,
+               let message = appState.ollamaAvailabilityMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }

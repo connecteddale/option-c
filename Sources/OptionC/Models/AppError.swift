@@ -9,6 +9,8 @@ enum AppError: Error, LocalizedError {
     case recordingFailed(underlying: Error)
     case clipboardWriteFailed
     case aiProcessingFailed(underlying: Error)
+    case ollamaNotRunning
+    case ollamaModelMissing(model: String)
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +28,10 @@ enum AppError: Error, LocalizedError {
             return "Failed to copy to clipboard"
         case .aiProcessingFailed:
             return "AI text cleanup failed"
+        case .ollamaNotRunning:
+            return "Ollama is not running"
+        case .ollamaModelMissing:
+            return "AI model not found"
         }
     }
 
@@ -45,6 +51,10 @@ enum AppError: Error, LocalizedError {
             return "Could not write to clipboard. Try again or restart the app."
         case .aiProcessingFailed(let underlying):
             return "Check that Ollama is running (ollama serve). The raw transcription was copied to clipboard. Error: \(underlying.localizedDescription)"
+        case .ollamaNotRunning:
+            return "Start Ollama with: ollama serve. Raw transcription was copied to clipboard."
+        case .ollamaModelMissing(let model):
+            return "Pull the model with: ollama pull \(model). Raw transcription was copied to clipboard."
         }
     }
 }

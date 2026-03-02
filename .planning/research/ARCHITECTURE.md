@@ -1,773 +1,635 @@
-# Architecture Patterns: macOS Voice-to-Clipboard Menu Bar App
+# Architecture Research: Claude CLI Post-Processing Integration
 
-**Domain:** macOS menu bar automation with background processing
-**Researched:** 2026-02-01
-**Overall confidence:** HIGH
+**Domain:** macOS menu bar voice-to-text with AI post-processing
+**Researched:** 2026-03-02
+**Confidence:** HIGH
 
-## Executive Summary
+## Context
 
-macOS menu bar apps with background automation follow a well-established hybrid architecture pattern combining SwiftUI for UI and AppKit for system integration. Modern apps (2026) use a centralized state machine with MainActor isolation, supporting components for global hotkeys, clipboard operations, and notifications. Your voice-to-clipboard flow maps cleanly to this pattern with distinct component boundaries and clear data flow.
+This document covers the v1.1 milestone architecture only: integrating Claude CLI as a post-processing step into the already-shipped voice-to-clipboard pipeline. It supersedes the original ARCHITECTURE.md (which described the pre-WhisperKit, Voice Memos era).
 
-## Recommended Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Menu Bar UI                          │
-│              (SwiftUI MenuBarExtra)                     │
-│          idle → recording → processing                  │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ↓
-┌─────────────────────────────────────────────────────────┐
-│              State Coordinator                          │
-│          (@MainActor ObservableObject)                  │
-│    - Current state (idle/recording/processing)          │
-│    - Orchestrates component interactions                │
-│    - Publishes state changes to UI                      │
-└─┬────────┬────────┬────────┬────────┬──────────────────┘
-  │        │        │        │        │
-  ↓        ↓        ↓        ↓        ↓
-┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────────┐
-│Hky │  │VM  │  │DB  │  │Clip│  │Notify  │
-│Mgr │  │Ctl │  │Poll│  │Brd │  │Center  │
-└────┘  └────┘  └────┘  └────┘  └────────┘
-```
-
-### Component Boundaries
-
-| Component | Responsibility | Communicates With | Technology |
-|-----------|---------------|-------------------|------------|
-| **Menu Bar UI** | Display current state icon/text to user | State Coordinator (reads) | SwiftUI MenuBarExtra |
-| **State Coordinator** | Central state machine, orchestrates workflow | All components (controls) | Swift @MainActor class |
-| **Hotkey Manager** | Register Option-C, detect presses | State Coordinator (notifies) | KeyboardShortcuts library |
-| **Voice Memos Controller** | Start/stop recording via AppleScript/system commands | State Coordinator (receives commands) | Process/NSAppleScript |
-| **Database Poller** | Monitor ~/Library/.../CloudRecordings.db for new transcriptions | State Coordinator (notifies when found) | Swift Timer + SQLite.swift |
-| **Clipboard Manager** | Write transcription text to system clipboard | State Coordinator (receives text) | NSPasteboard |
-| **Notification Center** | Show success/error/timeout notifications | State Coordinator (receives messages) | UNUserNotificationCenter |
-
-### Data Flow
+The existing pipeline is:
 
 ```
-USER FLOW:
-1. User presses Option-C
-   → Hotkey Manager detects → notifies State Coordinator
-   → State Coordinator: idle → recording
-   → Voice Memos Controller: start recording
-   → Menu Bar UI: updates to "recording" icon
-
-2. User presses Option-C again
-   → Hotkey Manager detects → notifies State Coordinator
-   → State Coordinator: recording → processing
-   → Voice Memos Controller: stop recording
-   → Database Poller: start polling (30s timeout)
-   → Menu Bar UI: updates to "processing" icon
-
-3a. Database Poller finds transcription
-   → Notifies State Coordinator with text
-   → Clipboard Manager: write text
-   → Notification Center: show success
-   → State Coordinator: processing → idle
-   → Menu Bar UI: returns to idle icon
-
-3b. Database Poller times out (30s)
-   → Notifies State Coordinator
-   → Notification Center: show timeout error
-   → State Coordinator: processing → idle
-   → Menu Bar UI: returns to idle icon
+hotkey -> AppState -> RecordingController -> AudioCaptureManager
+       -> WhisperTranscriptionEngine -> TextReplacementManager
+       -> ClipboardManager -> optional CGEvent paste
 ```
 
-**Key architectural decisions:**
-- **Unidirectional data flow**: Components don't talk to each other directly, only through State Coordinator
-- **Single source of truth**: State Coordinator owns all state
-- **UI follows state**: Menu Bar UI is purely reactive to state changes
-- **No component knows the full flow**: Each component has single responsibility
+All state flows through `AppState` (@MainActor, ObservableObject). The Claude CLI integration adds one step — after text replacements, before clipboard.
 
-## Component Details
+---
 
-### 1. Menu Bar UI (SwiftUI MenuBarExtra)
+## Updated Pipeline
 
-**Pattern:** Declarative UI bound to state
+```
+hotkey -> AppState -> RecordingController -> AudioCaptureManager
+       -> WhisperTranscriptionEngine
+       -> TextReplacementManager
+       -> [NEW] ClaudeProcessingEngine  (if aiProcessingEnabled)
+       -> ClipboardManager
+       -> optional CGEvent paste
+```
 
-**Implementation:**
+Claude CLI is called only when the toggle is on. If it is off, or if the call fails, the pipeline falls through to clipboard as today.
+
+---
+
+## Standard Architecture
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      MenuBarView (SwiftUI)                   │
+│  status | mode | model | replacements | options | quit       │
+│         + [NEW] AI Processing toggle checkbox                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ @ObservedObject
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  AppState (@MainActor)                        │
+│  currentState | recordingMode | autoPasteEnabled             │
+│  selectedWhisperModel | whisperModelLoaded                   │
+│  [NEW] aiProcessingEnabled: Bool (@AppStorage)               │
+│  [NEW] aiProcessing: Bool (@Published)                       │
+└──┬─────────────┬───────────────────────────────────────────┘
+   │             │
+   ↓             ↓
+┌──────────┐  ┌─────────────────────────────────────────────┐
+│Recording │  │  stopRecording() pipeline in AppState         │
+│Controller│  │                                               │
+│          │  │  1. recordingController.stopRecording()       │
+│AudioCap  │  │     -> String? (raw Whisper text)             │
+│Whisper   │  │                                               │
+│Engine    │  │  2. TextReplacementManager.apply(to:)         │
+└──────────┘  │     -> String (replaced text)                 │
+              │                                               │
+              │  3. [NEW] ClaudeProcessingEngine.process(_:)  │
+              │     async throws -> String                    │
+              │     (only if aiProcessingEnabled)             │
+              │                                               │
+              │  4. ClipboardManager.copy(_:)                 │
+              │                                               │
+              │  5. optional simulatePaste()                  │
+              └─────────────────────────────────────────────┘
+                           │
+                           ↓ (new component)
+              ┌─────────────────────────────────────────────┐
+              │         ClaudeProcessingEngine               │
+              │  - Wraps Foundation.Process                  │
+              │  - Invokes: claude --print -p <prompt>       │
+              │  - Stdin: transcribed text                   │
+              │  - Stdout: cleaned text                      │
+              │  - Timeout: 15s                              │
+              │  - Failure mode: returns input unchanged     │
+              └─────────────────────────────────────────────┘
+```
+
+### Component Responsibilities
+
+| Component | Responsibility | Status | Change |
+|-----------|---------------|--------|--------|
+| AppState | Central state coordinator, pipeline orchestration | Existing | Add `aiProcessingEnabled`, `aiProcessing`, call ClaudeProcessingEngine in stopRecording() |
+| RecordingController | Orchestrate audio capture + transcription | Existing | No change |
+| AudioCaptureManager | Microphone via AVAudioEngine | Existing | No change |
+| WhisperTranscriptionEngine | On-device speech-to-text (singleton actor) | Existing | No change |
+| TextReplacementManager | Find/replace post-processing | Existing | No change |
+| ClaudeProcessingEngine | Spawn claude CLI, send text via stdin, read stdout | New | New file |
+| ClipboardManager | NSPasteboard write | Existing | No change |
+| MenuBarView | Toggle UI for AI processing | Existing | Add checkbox in optionsSection |
+| AppError | Error enum | Existing | Add `aiProcessingFailed` case |
+
+---
+
+## Recommended Project Structure
+
+```
+Sources/OptionC/
+  OptionCApp.swift
+  State/
+    AppState.swift                    -- modified: add aiProcessingEnabled, aiProcessing
+  Recording/
+    RecordingController.swift         -- no change
+  Audio/
+    AudioCaptureManager.swift         -- no change
+  Transcription/
+    WhisperTranscriptionEngine.swift  -- no change
+  Processing/                         -- NEW directory
+    ClaudeProcessingEngine.swift      -- NEW: Process wrapper + prompt
+  Clipboard/
+    ClipboardManager.swift            -- no change
+  Services/
+    PermissionManager.swift           -- no change
+  Views/
+    MenuBarView.swift                 -- modified: add AI toggle to optionsSection
+    ReplacementsWindow.swift          -- no change
+  Models/
+    RecordingState.swift              -- no change
+    RecordingMode.swift               -- no change
+    AppError.swift                    -- modified: add aiProcessingFailed case
+    TextReplacement.swift             -- no change
+```
+
+### Structure Rationale
+
+- **Processing/:** New directory mirrors the existing naming convention. Keeps ClaudeProcessingEngine alongside WhisperTranscriptionEngine conceptually but separate from it physically (different stage in pipeline).
+- **No new state file:** `aiProcessingEnabled` and `aiProcessing` belong in AppState — same pattern as `autoPasteEnabled` and `whisperModelLoading`.
+
+---
+
+## Architectural Patterns
+
+### Pattern 1: Toggle State via @AppStorage
+
+**What:** AI processing is a user preference persisted across launches, stored in UserDefaults via @AppStorage. The toggle follows the exact same pattern as `autoPasteEnabled`.
+
+**When to use:** Any user-configurable option that should persist across launches and needs no migration logic.
+
+**Trade-offs:** Simple, automatic persistence, SwiftUI binding works directly. No access from non-MainActor code without care.
+
+**Example:**
+
 ```swift
-@main
-struct OptionCApp: App {
-    @StateObject private var coordinator = StateCoordinator()
+// In AppState.swift
 
-    var body: some Scene {
-        MenuBarExtra {
-            // Optional dropdown menu
-            Button("Quit") { NSApplication.shared.terminate(nil) }
-        } label: {
-            Image(systemName: coordinator.menuBarIcon)
-            Text(coordinator.menuBarText)
-        }
+/// Whether Claude CLI post-processing is enabled
+@AppStorage("aiProcessingEnabled") var aiProcessingEnabled: Bool = false
+
+/// Whether Claude CLI is currently running (drives UI feedback)
+@Published var aiProcessing: Bool = false
+```
+
+In MenuBarView, bind directly:
+
+```swift
+Toggle("AI text cleanup (Claude)", isOn: $appState.aiProcessingEnabled)
+    .toggleStyle(.checkbox)
+```
+
+This works because `appState` is an @ObservedObject and `aiProcessingEnabled` is @AppStorage — SwiftUI picks up changes automatically.
+
+### Pattern 2: Process Invocation via withCheckedThrowingContinuation
+
+**What:** Foundation.Process is callback/synchronous. Bridge it to async/await using `withCheckedThrowingContinuation`, running the process on a background DispatchQueue to avoid blocking the main thread.
+
+**When to use:** Any time a synchronous or callback-based API needs to be called from async/await context. This is the established pattern until Swift Subprocess lands in a stable release (expected Swift 6.2, not available on macOS 14 today).
+
+**Trade-offs:** More boilerplate than the future Subprocess API, but proven, stable, and works on macOS 14+.
+
+**Example:**
+
+```swift
+// Sources/OptionC/Processing/ClaudeProcessingEngine.swift
+
+import Foundation
+
+enum ClaudeProcessingError: Error {
+    case claudeNotFound
+    case processLaunchFailed(Error)
+    case timeout
+    case nonZeroExit(Int32, String)
+    case emptyOutput
+}
+
+final class ClaudeProcessingEngine {
+
+    static let shared = ClaudeProcessingEngine()
+
+    /// Path to claude CLI. Resolved once at init.
+    private let claudePath: String?
+
+    private init() {
+        claudePath = ClaudeProcessingEngine.resolveClaudePath()
     }
-}
-```
 
-**State-driven display:**
-- `idle`: Microphone icon, no text
-- `recording`: Red dot icon, "Recording"
-- `processing`: Spinner icon, "Processing"
-
-**Technology:** SwiftUI's MenuBarExtra (macOS 13+)
-
-**Alternative (for macOS 12 and earlier):** AppKit NSStatusBar with NSStatusItem
-
-**Why this approach:**
-- Simplest implementation for macOS 13+
-- Built-in system integration
-- Automatic menu bar lifecycle management
-- No dock icon needed (set `Application is agent (UIElement)` to YES in Info.plist)
-
-### 2. State Coordinator (@MainActor)
-
-**Pattern:** Central state machine with actor isolation
-
-**Core state:**
-```swift
-@MainActor
-class StateCoordinator: ObservableObject {
-    @Published var currentState: AppState = .idle
-
-    enum AppState {
-        case idle
-        case recording
-        case processing(startTime: Date)
-    }
-}
-```
-
-**Responsibilities:**
-1. Receive hotkey press events
-2. Transition state based on current state + event
-3. Command appropriate components
-4. Handle timeout logic (30s in processing state)
-5. Publish state changes for UI
-
-**Why @MainActor:**
-- All UI updates must happen on main thread
-- Prevents race conditions in state transitions
-- Simple concurrency model (no manual dispatch)
-
-**Implementation note:** 70% of menu bar apps surveyed use this centralized ViewModel pattern with @MainActor isolation.
-
-### 3. Hotkey Manager (KeyboardShortcuts)
-
-**Pattern:** Library-managed global event monitoring
-
-**Library recommendation:** KeyboardShortcuts by sindresorhus
-- Swift-native API
-- Mac App Store compatible
-- Handles permissions automatically
-- Built-in user preference UI for customization
-
-**Alternative:** MASShortcut (more mature, Objective-C, more localizations)
-
-**Why not NSEvent.addGlobalMonitorForEvents:**
-- Requires Accessibility permissions (user must manually enable)
-- Cannot modify events
-- Cannot receive events when Secure Keyboard Entry is active
-- More boilerplate for basic hotkey registration
-
-**Implementation:**
-```swift
-import KeyboardShortcuts
-
-extension KeyboardShortcuts.Name {
-    static let toggleRecording = Self("toggleRecording", default: .init(.c, modifiers: [.option]))
-}
-
-// In StateCoordinator.init():
-KeyboardShortcuts.onKeyDown(for: .toggleRecording) { [weak self] in
-    self?.handleHotkeyPress()
-}
-```
-
-**Permissions:** Input Monitoring (macOS 10.15+) - library prompts automatically
-
-### 4. Voice Memos Controller
-
-**Pattern:** External app control via system commands
-
-**Challenge:** Voice Memos.app has **no AppleScript dictionary** (verified 2026-02-01)
-
-**Solution options:**
-
-**Option A: UI automation via AppleScript + System Events**
-```applescript
-tell application "Voice Memos" to activate
-tell application "System Events"
-    tell process "Voice Memos"
-        -- Click "New Recording" button or use keyboard shortcut
-        keystroke "n" using command down
-    end tell
-end tell
-```
-- Pros: Works today
-- Cons: Brittle (breaks if UI changes), requires Accessibility permissions, slower
-
-**Option B: Direct database writes (not recommended)**
-- Pros: No UI interaction needed
-- Cons: Reverse-engineering Apple's schema, high risk of corruption, violates app sandboxing expectations
-
-**Option C: Use macOS native audio capture instead**
-- Use AVFoundation to record directly
-- Save to temporary file
-- Submit to Speech framework for transcription
-- Pros: Full control, no external app dependency
-- Cons: Duplicates Voice Memos functionality, requires separate transcription service
-
-**Recommendation for MVP:** Option A (AppleScript UI automation)
-**Recommendation for production:** Option C (AVFoundation + Speech framework)
-
-**Why:** Option A gets you working fastest. Option C is more robust but requires implementing recording + transcription yourself. Voice Memos controller becomes just an audio recorder.
-
-### 5. Database Poller
-
-**Pattern:** Timer-based polling with timeout
-
-**Database locations:**
-- iCloud sync: `~/Library/Application Support/com.apple.voicememos/Recordings/CloudRecordings.db`
-- Local only: `~/Library/Application Support/com.apple.voicememos/Recordings/Recordings.db`
-
-**Polling strategy:**
-```swift
-class DatabasePoller {
-    private var timer: Timer?
-    private let pollInterval: TimeInterval = 0.5  // 500ms
-    private let timeout: TimeInterval = 30.0
-    private var startTime: Date?
-
-    func startPolling(completion: @escaping (Result<String, PollerError>) -> Void) {
-        startTime = Date()
-        timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-
-            // Check timeout
-            if Date().timeIntervalSince(self.startTime!) > self.timeout {
-                self.stopPolling()
-                completion(.failure(.timeout))
-                return
-            }
-
-            // Query database for newest recording with transcription
-            if let transcription = self.checkForNewTranscription() {
-                self.stopPolling()
-                completion(.success(transcription))
+    /// Find the claude binary. Checks known install locations.
+    private static func resolveClaudePath() -> String? {
+        let candidates = [
+            "/usr/local/bin/claude",
+            "\(NSHomeDirectory())/.local/bin/claude",
+            "/opt/homebrew/bin/claude",
+        ]
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
             }
         }
-    }
-}
-```
-
-**SQLite access:**
-- Use SQLite.swift library (type-safe Swift wrapper)
-- Query: `SELECT transcription FROM recordings WHERE created_at > ? ORDER BY created_at DESC LIMIT 1`
-- Track last known recording timestamp to detect new entries
-
-**Alternative pattern: File system watching**
-- Use DispatchSource.makeFileSystemObjectSource to watch .db file
-- React to file modifications instead of polling
-- Pros: More efficient, immediate response
-- Cons: Still need to query to check if transcription is present (not just recording)
-- Verdict: Polling is simpler for MVP, file watching for optimization
-
-**Permission required:** Full Disk Access
-- Voice Memos database requires this permission
-- Use FullDiskAccess library (inket/FullDiskAccess on GitHub) to check/prompt
-- Open System Settings programmatically: `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`
-
-### 6. Clipboard Manager (NSPasteboard)
-
-**Pattern:** System pasteboard write
-
-**Implementation:**
-```swift
-class ClipboardManager {
-    static func copy(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-    }
-}
-```
-
-**Critical detail:** Must call `clearContents()` before writing on macOS (unlike iOS)
-
-**No permissions required** for writing to clipboard
-
-**Verification approach:**
-- Read back immediately after write to confirm
-- On failure, notify user via Notification Center
-
-### 7. Notification Center (UNUserNotificationCenter)
-
-**Pattern:** System notifications for async feedback
-
-**Implementation:**
-```swift
-import UserNotifications
-
-class NotificationManager {
-    static func requestPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        return nil
     }
 
-    static func showSuccess(text: String) {
-        let content = UNMutableNotificationContent()
-        content.title = "Copied to Clipboard"
-        content.body = String(text.prefix(100)) + (text.count > 100 ? "..." : "")
-        content.sound = .default
+    /// Send text through Claude CLI for cleanup.
+    /// - Returns: Cleaned text, or throws on failure.
+    /// - Note: Called from AppState.stopRecording() which is @MainActor.
+    ///   Process runs on a background queue; continuation resumes on arbitrary thread.
+    ///   AppState must await this call and then update @Published state on MainActor.
+    func process(_ text: String, timeout: TimeInterval = 15) async throws -> String {
+        guard let claudePath else {
+            throw ClaudeProcessingError.claudeNotFound
+        }
 
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let task = Process()
+                let stdinPipe = Pipe()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
 
-    static func showTimeout() {
-        let content = UNMutableNotificationContent()
-        content.title = "Transcription Timeout"
-        content.body = "Voice Memos didn't produce a transcription within 30 seconds"
-        content.sound = .defaultCritical
+                task.executableURL = URL(fileURLWithPath: claudePath)
+                task.arguments = [
+                    "--print",
+                    "--model", "claude-haiku-4-5",
+                    "--no-session-persistence",
+                    "--output-format", "text",
+                    "--allowedTools", "",   // no tools needed
+                    Self.systemPrompt,
+                ]
+                task.standardInput = stdinPipe
+                task.standardOutput = stdoutPipe
+                task.standardError = stderrPipe
 
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
-}
-```
+                // Strip CLAUDECODE env var so nested invocation is allowed
+                var env = ProcessInfo.processInfo.environment
+                env.removeValue(forKey: "CLAUDECODE")
+                task.environment = env
 
-**Permissions:** Notification authorization (prompted on first use)
+                // Timeout: terminate process if it runs too long
+                let timeoutItem = DispatchWorkItem {
+                    task.terminate()
+                    continuation.resume(throwing: ClaudeProcessingError.timeout)
+                }
+                DispatchQueue.global().asyncAfter(
+                    deadline: .now() + timeout,
+                    execute: timeoutItem
+                )
 
-**Note for menu bar apps:** UNUserNotificationCenter works with menu bar apps (Application is agent = YES) without issues in macOS 13+
+                do {
+                    try task.run()
 
-## Patterns to Follow
+                    // Write input text to stdin then close
+                    let inputData = text.data(using: .utf8) ?? Data()
+                    stdinPipe.fileHandleForWriting.write(inputData)
+                    try stdinPipe.fileHandleForWriting.close()
 
-### Pattern 1: State-Driven Architecture
+                    // Block until process exits (on background queue — this is safe)
+                    task.waitUntilExit()
+                    timeoutItem.cancel()
 
-**What:** Single state enum drives all behavior
+                    let exitCode = task.terminationStatus
 
-**When:** Any app with multiple modes of operation
+                    // Read stdout
+                    let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: outputData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-**Example:**
-```swift
-enum AppState {
-    case idle
-    case recording
-    case processing(startTime: Date)
-}
+                    // Read stderr for diagnostics (log only)
+                    let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
 
-func handleHotkeyPress() {
-    switch currentState {
-    case .idle:
-        startRecording()
-    case .recording:
-        stopRecordingAndStartProcessing()
-    case .processing:
-        // Ignore presses while processing
-        break
-    }
-}
-```
+                    guard exitCode == 0 else {
+                        NSLog("[OptionC] Claude CLI exit \(exitCode): \(errorOutput)")
+                        continuation.resume(
+                            throwing: ClaudeProcessingError.nonZeroExit(exitCode, errorOutput)
+                        )
+                        return
+                    }
 
-**Why:** Prevents invalid state transitions, makes behavior predictable, easier to test
+                    guard !output.isEmpty else {
+                        continuation.resume(throwing: ClaudeProcessingError.emptyOutput)
+                        return
+                    }
 
-### Pattern 2: Coordinator Pattern
+                    continuation.resume(returning: output)
 
-**What:** Central coordinator owns all components, components don't communicate directly
-
-**When:** Multiple independent system services need to work together
-
-**Example:**
-```swift
-class StateCoordinator {
-    private let hotkeyManager = HotkeyManager()
-    private let voiceMemosController = VoiceMemosController()
-    private let databasePoller = DatabasePoller()
-    private let clipboardManager = ClipboardManager()
-    private let notificationManager = NotificationManager()
-
-    // Coordinator receives events and orchestrates
-}
-```
-
-**Why:** Clear ownership, testable in isolation, easy to reason about data flow
-
-### Pattern 3: Timer-Based Polling with Timeout
-
-**What:** Repeatedly check for condition with maximum time limit
-
-**When:** Waiting for external process to complete (transcription)
-
-**Example:** See Database Poller section above
-
-**Why:** Simple, predictable, works when file system events aren't reliable
-
-### Pattern 4: Swift Concurrency with MainActor
-
-**What:** Use async/await with @MainActor for UI-related state
-
-**When:** Modern Swift apps (macOS 13+)
-
-**Example:**
-```swift
-@MainActor
-class StateCoordinator: ObservableObject {
-    func startProcessing() async {
-        currentState = .processing(startTime: Date())
-
-        do {
-            let transcription = try await databasePoller.waitForTranscription()
-            clipboardManager.copy(transcription)
-            notificationManager.showSuccess(text: transcription)
-            currentState = .idle
-        } catch {
-            notificationManager.showTimeout()
-            currentState = .idle
+                } catch {
+                    timeoutItem.cancel()
+                    continuation.resume(
+                        throwing: ClaudeProcessingError.processLaunchFailed(error)
+                    )
+                }
+            }
         }
     }
+
+    private static let systemPrompt = """
+        You are a transcription cleanup engine. The user will provide raw speech-to-text output. \
+        Clean it up: fix punctuation, capitalisation, spelling. \
+        Convert spoken numbers to digits (e.g. "forty two" -> "42"). \
+        Convert spoken currency (e.g. "fifty dollars" -> "$50"). \
+        Format times in 24h format with 'h' separator (e.g. "2 30 pm" -> "14h30", "half three" -> "15h30"). \
+        Return ONLY the cleaned text. No explanation, no preamble, no quotes.
+        """
 }
 ```
 
-**Why:** No manual dispatch queues, compiler-enforced thread safety, cleaner async code
+### Pattern 3: Graceful Degradation on AI Failure
 
-## Anti-Patterns to Avoid
+**What:** If Claude CLI fails (not installed, timeout, non-zero exit), the pipeline falls through and delivers the text-replacement-processed text to clipboard without AI cleanup. The user still gets output. The error is logged but does not cause an error state in the UI.
 
-### Anti-Pattern 1: Directly Controlling Voice Memos Without Validation
+**When to use:** Any enhancement step that is not core to the primary value proposition. The primary value is voice-to-clipboard. AI cleanup is a bonus.
 
-**What:** Assuming Voice Memos commands succeed without checking
+**Trade-offs:** Users may not notice the degradation silently. Consider a brief toast or icon change to indicate AI was skipped, without blocking the flow.
 
-**Why bad:** UI automation is inherently unreliable; Voice Memos might not be installed, might be in different state, might have UI changes
+**Example in AppState.stopRecording():**
 
-**Instead:**
-- Verify Voice Memos is installed before attempting control
-- Check for success/failure of AppleScript commands
-- Have fallback behavior (show error notification, return to idle)
-- For production, consider replacing with AVFoundation native recording
-
-### Anti-Pattern 2: Polling Without Timeout
-
-**What:** Infinite polling until transcription appears
-
-**Why bad:** Transcription can fail silently (no network, API issues), app hangs forever, no user feedback
-
-**Instead:** Always set maximum timeout (30s recommended), notify user on timeout, return to idle state
-
-### Anti-Pattern 3: State Scattered Across Components
-
-**What:** Each component tracks its own state independently
-
-**Why bad:** State can become inconsistent (UI shows "recording" but controller is idle), race conditions, hard to debug
-
-**Instead:** Single source of truth (State Coordinator), components are stateless executors
-
-### Anti-Pattern 4: Blocking Main Thread for Database Operations
-
-**What:** Running SQLite queries on main thread during polling
-
-**Why bad:** UI freezes, poor user experience, violates macOS HIG
-
-**Instead:** Run database queries on background thread/actor, only update UI on main thread:
 ```swift
-Task {
-    let transcription = await Task.detached {
-        // SQLite query on background thread
-        return databasePoller.queryLatestTranscription()
-    }.value
+// Apply text replacements
+let replacedText = TextReplacementManager.shared.apply(to: rawText)
 
-    await MainActor.run {
-        // Update UI on main thread
-        clipboardManager.copy(transcription)
+// Apply Claude AI cleanup if enabled
+var finalText = replacedText
+if aiProcessingEnabled {
+    aiProcessing = true
+    do {
+        finalText = try await ClaudeProcessingEngine.shared.process(replacedText)
+    } catch {
+        NSLog("[OptionC] Claude processing skipped: \(error)")
+        // finalText stays as replacedText — pipeline continues unchanged
     }
+    aiProcessing = false
 }
+
+// Copy to clipboard
+try ClipboardManager.copy(finalText)
 ```
 
-### Anti-Pattern 5: Assuming Permissions Are Granted
+### Pattern 4: State Feedback During AI Processing
 
-**What:** Accessing Full Disk Access paths without checking permissions
+**What:** The existing `processing` state in `RecordingState` covers WhisperKit transcription. Once WhisperKit returns, the app briefly enters a post-transcription phase where Claude CLI runs. The `aiProcessing` flag on AppState drives this, and the menu bar icon stays on `ellipsis` (processing) until the full pipeline completes.
 
-**Why bad:** Silent failures, confusing user experience, possible crashes
+**When to use:** Multi-step async pipelines where each step adds latency. Avoid adding new RecordingState cases — the existing `processing` state is the right abstraction.
 
-**Instead:**
-- Check permissions on launch
-- Prompt user with clear explanation before first use
-- Provide helpful error messages with link to System Settings
-- Graceful degradation if permission denied
-
-## Build Order & Dependencies
-
-### Phase 1: Core Infrastructure (Foundation)
-**Build order:**
-1. Create basic MenuBarExtra app with SwiftUI
-2. Implement StateCoordinator with state enum
-3. Add visual states to menu bar (idle/recording/processing icons)
-4. Wire up state changes to update UI
-
-**Deliverable:** Menu bar app that can display different states manually
-
-**Why first:** Establishes architecture pattern, provides visual feedback for later phases
+**Trade-offs:** The user sees "processing" for the combined WhisperKit + Claude time. This is accurate and avoids introducing a new `.aiProcessing` state that would multiply menu bar icon logic. Menu item could show "AI cleanup..." text during this phase as a refinement.
 
 ---
 
-### Phase 2: Hotkey Detection (Trigger)
-**Build order:**
-1. Integrate KeyboardShortcuts library
-2. Register Option-C shortcut
-3. Connect hotkey handler to StateCoordinator
-4. Implement state transitions (idle ↔ recording, recording → processing)
+## Data Flow
 
-**Deliverable:** Menu bar responds to Option-C presses with state changes
-
-**Why second:** Core interaction model, needed to trigger all other components
-
-**Dependency:** Phase 1 (needs StateCoordinator)
-
----
-
-### Phase 3: Voice Memos Control (Recording)
-**Build order:**
-1. Write AppleScript for starting Voice Memos recording
-2. Write AppleScript for stopping recording
-3. Create VoiceMemosController wrapper in Swift
-4. Integrate with StateCoordinator (triggered on hotkey)
-5. Request Accessibility permissions
-
-**Deliverable:** Option-C starts/stops actual Voice Memos recordings
-
-**Why third:** Generates the recordings that subsequent phases process
-
-**Dependency:** Phase 2 (triggered by hotkey)
-
-**Alternative path:** If AppleScript proves too unreliable, pivot to AVFoundation native recording
-
----
-
-### Phase 4: Database Access (Detection)
-**Build order:**
-1. Request Full Disk Access permission (using FullDiskAccess library)
-2. Integrate SQLite.swift library
-3. Locate Voice Memos database file
-4. Implement query to find latest recording with transcription
-5. Create DatabasePoller with timer-based polling
-6. Implement 30-second timeout logic
-
-**Deliverable:** Can detect when transcription appears in database
-
-**Why fourth:** Core automation logic, bridges recording to clipboard
-
-**Dependency:** Phase 3 (needs recordings to detect)
-
-**Risk:** If Full Disk Access is blocke, entire approach fails. Validate early.
-
----
-
-### Phase 5: Clipboard & Notifications (Output)
-**Build order:**
-1. Implement ClipboardManager with NSPasteboard
-2. Request notification permissions
-3. Implement NotificationManager with UNUserNotificationCenter
-4. Create success notification (shows transcription preview)
-5. Create timeout/error notifications
-6. Wire polling completion to clipboard + notification
-
-**Deliverable:** Complete workflow from hotkey to clipboard
-
-**Why fifth:** Completes the user-facing feature end-to-end
-
-**Dependency:** Phase 4 (receives transcription from poller)
-
----
-
-### Phase 6: Polish & Error Handling (Resilience)
-**Build order:**
-1. Add permission status checks on launch
-2. Implement graceful failures (Voice Memos not installed, etc.)
-3. Add menu bar dropdown with status/preferences
-4. Implement logging for debugging
-5. Add timeout visual feedback (progress indicator in menu bar)
-6. Handle edge cases (multiple rapid hotkey presses, etc.)
-
-**Deliverable:** Production-ready app
-
-**Why last:** Requires complete feature to identify edge cases
-
-**Dependency:** Phase 5 (all features complete)
-
----
-
-## Dependency Graph
+### Transcription + AI Cleanup Flow
 
 ```
-Phase 1: Core Infrastructure
-    ↓
-Phase 2: Hotkey Detection
-    ↓
-Phase 3: Voice Memos Control
-    ↓
-Phase 4: Database Access ← CRITICAL PATH (Full Disk Access required)
-    ↓
-Phase 5: Clipboard & Notifications
-    ↓
-Phase 6: Polish & Error Handling
+User releases hotkey
+    |
+    v
+AppState.stopRecording()
+    |
+    v (async, withTimeout 30s)
+RecordingController.stopRecording()
+    |
+    +--> AudioCaptureManager.getAudioSamples() -> [Float]
+    +--> AudioCaptureManager.stopCapture()
+    +--> WhisperTranscriptionEngine.transcribe(audioSamples:) -> String
+    |
+    v
+TextReplacementManager.apply(to: rawText) -> String
+    |
+    v (conditional: aiProcessingEnabled)
+ClaudeProcessingEngine.process(_:) -> String
+    |    (background DispatchQueue, 15s timeout)
+    |    (graceful fallback: returns replacedText on any error)
+    |
+    v
+ClipboardManager.copy(finalText)
+    |
+    v (conditional: autoPasteEnabled)
+simulatePaste() via CGEvent
+    |
+    v
+transitionToSuccess(transcription: finalText)
 ```
 
-**Critical path:** Phase 4 is highest risk due to Full Disk Access requirement. Validate database access early.
+### State Transitions with AI Processing
 
-**Parallel work opportunities:**
-- Phase 5 (Clipboard/Notifications) components can be built in parallel with Phase 4 and tested with mock data
+```
+idle
+  |-- hotkey down/up -->
+recording
+  |-- hotkey up (toggle) / release (PTT) -->
+processing   <-- RecordingState.processing covers this entire phase
+  |-- WhisperKit returns, TextReplacementManager runs -->
+  |-- (if aiProcessingEnabled) ClaudeProcessingEngine runs -->
+  |-- ClipboardManager.copy() -->
+success(transcription:)
+  |-- 750ms -->
+idle
+```
 
-## Scalability Considerations
+`AppState.aiProcessing: Bool` is a secondary flag for future UI differentiation (e.g., showing "AI cleanup..." text in the menu dropdown during the Claude phase) but does not change `RecordingState`.
 
-| Concern | Current Scale | Future Scale | Approach |
-|---------|---------------|--------------|----------|
-| **Database polling** | Single user, occasional recordings | Same (single-user app) | Current polling (500ms) is sufficient |
-| **State complexity** | 3 states (idle/recording/processing) | Add preferences, history view | Maintain state machine pattern, extract to separate states |
-| **Permission management** | 3 permissions (Hotkey, Full Disk Access, Notifications) | Potentially more (Mic access for AVFoundation) | Centralize permission checking in dedicated manager |
-| **Error scenarios** | 2 main errors (timeout, no transcription) | More edge cases (no mic, no disk space) | Add comprehensive error enum, user-friendly messages |
-| **Background processing** | Simple timer polling | More sophisticated file watching | Replace Timer with DispatchSource file system events |
+### Toggle State Management
 
-**Current architecture supports:**
-- Adding features without rewriting (follows composition pattern)
-- Swapping components (e.g., Voice Memos → AVFoundation)
-- Testing in isolation (coordinator pattern)
+```
+MenuBarView
+  Toggle("AI text cleanup", isOn: $appState.aiProcessingEnabled)
+      |
+      @AppStorage("aiProcessingEnabled") persists to UserDefaults
+      |
+      AppState.stopRecording() reads aiProcessingEnabled synchronously
+      (no async needed — it's a Bool read on MainActor)
+```
 
-## Platform Considerations
+No observer, no notification needed. The `stopRecording()` method reads `aiProcessingEnabled` at the point it needs it. The setting takes effect on the next recording.
 
-### macOS Version Targeting
+---
 
-**Recommended minimum:** macOS 13 Ventura
-- MenuBarExtra requires macOS 13+
-- Modern Swift Concurrency features
-- UNUserNotificationCenter fully supported for menu bar apps
+## Integration Points
 
-**For macOS 12 and earlier:**
-- Replace MenuBarExtra with AppKit NSStatusBar
-- Replace async/await with Combine publishers
-- Adds complexity, not recommended unless necessary
+### New vs Modified Components
 
-### Mac App Store vs Direct Distribution
+| Component | New or Modified | What Changes |
+|-----------|----------------|--------------|
+| ClaudeProcessingEngine.swift | NEW | Entire file |
+| AppState.swift | MODIFIED | `aiProcessingEnabled`, `aiProcessing` properties; call site in `stopRecording()` |
+| MenuBarView.swift | MODIFIED | Add Toggle in `optionsSection` |
+| AppError.swift | MODIFIED | Add `aiProcessingFailed` case (for future use if error UX is desired) |
 
-**Mac App Store:**
-- Full Disk Access: Cannot be granted programmatically, user must enable manually
-- Sandboxing: May complicate AppleScript execution
-- Entitlements: Requires explicit permission declarations
-- Recommendation: Start with direct distribution, port to MAS after validation
+### External Boundary: Claude CLI
 
-**Direct Distribution:**
-- Simpler permission model
-- Easier debugging
-- Can use Developer ID signing without sandboxing
-- Recommendation: Use for MVP and testing
+| Property | Value |
+|----------|-------|
+| Executable path | `/Users/[user]/.local/bin/claude` (primary), `/usr/local/bin/claude`, `/opt/homebrew/bin/claude` |
+| Invocation mode | `claude --print --model claude-haiku-4-5 --no-session-persistence --output-format text [prompt]` |
+| Input | stdin (raw transcribed text) |
+| Output | stdout (cleaned text) |
+| Authentication | Session already authenticated on user's machine — no API key management needed |
+| Environment | Must strip `CLAUDECODE` env var to allow nested invocation |
+| Timeout | 15 seconds (network round-trip + model inference) |
+| Failure behaviour | Log and fall through; do not surface as UI error |
 
-### Apple Silicon vs Intel
+### CLAUDECODE Environment Variable
 
-**Current architecture is platform-agnostic:**
-- All components use native Swift/AppKit APIs
-- SQLite.swift supports both architectures
-- No special considerations needed
+Claude CLI detects if it is being run inside another Claude Code session via `CLAUDECODE` env variable and refuses to launch. Option-C's process inherits this variable when run from the terminal. The Process invocation must strip it:
 
-## Technology Stack Summary
+```swift
+var env = ProcessInfo.processInfo.environment
+env.removeValue(forKey: "CLAUDECODE")
+task.environment = env
+```
 
-| Category | Recommended | Alternative | Why Recommended |
-|----------|-------------|-------------|-----------------|
-| **Menu Bar UI** | SwiftUI MenuBarExtra | AppKit NSStatusBar | Simpler, modern, less code |
-| **State Management** | @MainActor ObservableObject | Combine Published | Better Swift concurrency integration |
-| **Hotkey Registration** | KeyboardShortcuts | MASShortcut | Swift-native, Mac App Store ready |
-| **Voice Control** | AppleScript (MVP) → AVFoundation | System Events only | AppleScript for quick start, AVFoundation for production |
-| **Database Access** | SQLite.swift | Raw SQLite C API | Type-safe, Swift-friendly |
-| **Polling** | Timer.scheduledTimer | DispatchSource | Simpler for MVP, sufficient for use case |
-| **Clipboard** | NSPasteboard | Third-party wrappers | Native, no dependencies |
-| **Notifications** | UNUserNotificationCenter | NSUserNotification (deprecated) | Modern, supported |
-| **Permissions** | FullDiskAccess library | Manual URL opening | Handles edge cases, better UX |
+This is verified behaviour: `claude --version` works with a clean environment, blocked when `CLAUDECODE` is set.
 
-## Open Questions & Risks
+### Model Selection for Claude CLI
 
-### High Risk: Full Disk Access Requirement
+Use `claude-haiku-4-5` (or the `haiku` alias). Rationale:
 
-**Question:** Will users grant Full Disk Access for this use case?
+- Transcription cleanup is a simple transformation task — no deep reasoning required
+- Haiku is fastest and cheapest, minimising added latency
+- A 30-50 word transcription processes in under 2 seconds on Haiku vs 5-8 seconds on Sonnet
+- If the user wants a slower/better model, that can be added as a preference later
 
-**Risk:** If users deny Full Disk Access, app cannot function. This is a significant permission to request.
+---
 
-**Mitigation:**
-1. Clear onboarding explaining why permission is needed
-2. Show value before requesting permission (demo video/screenshots)
-3. Consider alternative: Build transcription service yourself with Speech framework (removes database dependency)
+## Async/Await + Process: Implementation Notes
 
-**Validation:** Test with real users before committing to this architecture
+### Why Not Swift Subprocess
 
-### Medium Risk: Voice Memos UI Automation Reliability
+Swift Subprocess (SF-0007) is in review/testing as of early 2026. It is not available as a stable API on macOS 14 targets. Foundation.Process with `withCheckedThrowingContinuation` is the correct approach today.
 
-**Question:** How often do Voice Memos UI updates break AppleScript?
+### stdin Closure Timing
 
-**Risk:** Apple could redesign Voice Memos UI in any macOS update, breaking automation
+Write to stdin pipe and close it **after** `task.run()` returns. Closing stdin before the process starts can cause a broken pipe. The process must be running before stdin is written:
 
-**Mitigation:**
-1. Version-specific AppleScript with fallbacks
-2. Plan to migrate to AVFoundation + Speech framework for production
-3. Monitor macOS beta releases for Voice Memos changes
+```swift
+try task.run()
+stdinPipe.fileHandleForWriting.write(inputData)
+try stdinPipe.fileHandleForWriting.close()   // signals EOF to the subprocess
+task.waitUntilExit()
+```
 
-**Validation:** Test across macOS versions (13, 14, 15)
+### Timeout vs Task Cancellation
 
-### Low Risk: Transcription Timing Variability
+The 30-second `withTimeout` in `AppState.stopRecording()` wraps the entire pipeline including ClaudeProcessingEngine. The ClaudeProcessingEngine also has its own 15-second internal timeout via `DispatchWorkItem`. This means:
 
-**Question:** How long does Voice Memos typically take to transcribe?
+- WhisperKit gets up to 30s (as today)
+- Claude CLI gets up to 15s within that window
+- If the outer 30s fires first, the task throws `AppError.transcriptionTimeout` and the Claude process is terminated by the timeout DispatchWorkItem
 
-**Risk:** 30-second timeout might be too short for long recordings
+The outer `withTimeout` in RecordingController does not propagate Task cancellation into a running Process — it resolves the continuation with a timeout error, which causes `stopRecording()` to throw and short-circuit. The Claude process continues running briefly in the background but its output is discarded. This is acceptable: the Pipe buffers are small and the process will exit on its own.
 
-**Mitigation:**
-1. Make timeout configurable in preferences
-2. Show progress indicator during processing
-3. Log transcription timing to gather data
+For a cleaner solution, store the `task` reference and call `task.terminate()` from a `withTaskCancellationHandler` block. This is a refinement, not a blocker for MVP.
 
-**Validation:** Test with various recording lengths (10s, 1min, 5min)
+### Continuation Safety
+
+`withCheckedThrowingContinuation` enforces that the continuation is resumed exactly once. The pattern above resumes in exactly one place per code path (success, launch failure, or timeout). Verify this holds before shipping — the compiler does not catch double-resume at runtime; it will crash.
+
+---
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Running Process on MainActor
+
+**What people do:** Call `task.run()` and `task.waitUntilExit()` directly in AppState without dispatching to a background queue.
+
+**Why it is wrong:** `task.waitUntilExit()` blocks the calling thread. If called on the main thread, the UI freezes. The menu bar icon will not update to "processing" during Claude inference.
+
+**Do this instead:** Always dispatch Process execution to `DispatchQueue.global(qos: .userInitiated)` inside `withCheckedThrowingContinuation`.
+
+### Anti-Pattern 2: Letting Claude Process Inherit CLAUDECODE
+
+**What people do:** Pass nil for `task.environment` (which inherits the parent environment including `CLAUDECODE`).
+
+**Why it is wrong:** Claude CLI will refuse to start inside another Claude session. This causes silent failure in production builds run from the terminal during development.
+
+**Do this instead:** Always strip `CLAUDECODE` from the environment passed to the Process. Also a good practice: inherit a minimal environment (`PATH`, `HOME`, `USER`) rather than the full parent environment.
+
+### Anti-Pattern 3: Surfacing AI Failure as a Hard Error
+
+**What people do:** Add `aiProcessingFailed` to `AppError` and call `transitionToError(.aiProcessingFailed)` when Claude CLI fails.
+
+**Why it is wrong:** The primary value is voice-to-clipboard. A failed AI cleanup should not block the user from getting their transcription. Treating it as a hard error creates a bad experience when Claude is unavailable or slow.
+
+**Do this instead:** Log the failure, fall through with the pre-AI text, and copy it to clipboard. Optionally: add a subtle indicator (e.g., menu bar icon briefly different) if user needs to know AI was skipped.
+
+### Anti-Pattern 4: Adding a New RecordingState Case for AI Processing
+
+**What people do:** Add `.aiProcessing` to `RecordingState` to differentiate WhisperKit processing from Claude processing.
+
+**Why it is wrong:** Multiplies icon/color logic in MenuBarView, adds a state transition edge, and does not provide meaningful UX benefit — the user sees "processing" either way. The `aiProcessing: Bool` flag on AppState is sufficient for any future differentiation.
+
+**Do this instead:** Keep `RecordingState.processing` as the single "busy" state. Use `AppState.aiProcessing` only for UI text hints ("AI cleanup..." in the dropdown) if needed.
+
+### Anti-Pattern 5: Using --dangerously-skip-permissions
+
+**What people do:** Add `--dangerously-skip-permissions` or `--allowedTools ""` incorrectly, or omit tool restrictions entirely.
+
+**Why it is wrong:** Without `--allowedTools ""` (empty string), Claude CLI may attempt to use Bash/Edit/Read tools. For a text transformation task this wastes time and introduces unpredictable behaviour.
+
+**Do this instead:** Pass `--allowedTools ""` to explicitly disable all tools. The task is pure text in, text out — no tools needed.
+
+---
+
+## Build Order for v1.1 Phases
+
+### Phase 1: ClaudeProcessingEngine (foundation)
+
+Build the engine in isolation before wiring it into AppState. Verify:
+- CLI found at expected path
+- CLAUDECODE stripping works
+- stdin/stdout piping works
+- Timeout fires and terminates the process
+- Graceful fallback on non-zero exit
+
+Test with a minimal Swift command-line target or a unit test before integrating.
+
+Deliverable: `ClaudeProcessingEngine.swift` passes manual smoke test.
+
+### Phase 2: AppState Integration + Toggle
+
+Add `aiProcessingEnabled` and `aiProcessing` to AppState. Wire ClaudeProcessingEngine into `stopRecording()`. Add Toggle to MenuBarView. Add `aiProcessingFailed` to AppError.
+
+Verify:
+- Toggle persists across app restarts
+- Pipeline still works when toggle is off (no regression)
+- Pipeline calls Claude when toggle is on
+- Failure falls through without crashing
+
+Deliverable: End-to-end voice -> AI cleanup -> clipboard working with toggle.
+
+### Phase 3: Prompt Tuning
+
+Tune the system prompt for the specific formatting requirements: 24h times, number conversion, currency, punctuation, capitalisation. Test with representative transcription samples.
+
+Verify:
+- "two thirty pm" -> "14h30"
+- "forty two dollars" -> "$42"
+- "its a good idea" -> "It's a good idea."
+- Existing text replacements still run before AI (so custom jargon is handled pre-Claude)
+
+Deliverable: Consistent formatting across a test corpus of 20+ representative phrases.
+
+### Phase 4: WhisperKit Native Formatting Research (parallel track)
+
+Research whether WhisperKit's `DecodingOptions` offer any formatting improvements (punctuation model, word timestamps, initial prompt). This is independent of Claude CLI integration and can run in parallel. Findings may reduce the work Claude needs to do.
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Basis |
+|------|------------|-------|
+| Pipeline insertion point | HIGH | Verified from reading AppState.stopRecording() source |
+| @AppStorage toggle pattern | HIGH | Matches existing autoPasteEnabled pattern in same file |
+| Process + withCheckedThrowingContinuation | HIGH | Standard documented pattern, verified via multiple sources |
+| CLAUDECODE env stripping | HIGH | Confirmed by running claude in nested env from shell |
+| Claude CLI flags (--print, --no-session-persistence) | HIGH | Verified from --help output, version 2.1.63 |
+| Model recommendation (Haiku) | MEDIUM | Haiku availability confirmed; latency estimate from general knowledge |
+| Prompt effectiveness | MEDIUM | Needs empirical tuning against real transcription samples |
+| Swift Subprocess status | MEDIUM | Under review as of 2026; not stable on macOS 14 |
+
+---
 
 ## Sources
 
-**Menu Bar Architecture:**
-- [Building a MacOS Menu Bar App with Swift](https://gaitatzis.medium.com/building-a-macos-menu-bar-app-with-swift-d6e293cd48eb) (Medium, 2024)
-- [Build a macOS menu bar utility in SwiftUI](https://nilcoalescing.com/blog/BuildAMacOSMenuBarUtilityInSwiftUI/) (nilcoalescing, 2024)
-- [Using Swift/SwiftUI to build a modern macOS Menu Bar app](https://kyan.com/insights/using-swift-swiftui-to-build-a-modern-macos-menu-bar-app) (Kyan, 2025)
-- [Create a mac menu bar app in SwiftUI with MenuBarExtra](https://sarunw.com/posts/swiftui-menu-bar-app/) (Sarunw, 2024)
-
-**Global Hotkey Handling:**
-- [addGlobalMonitorForEvents(matching:handler:)](https://developer.apple.com/documentation/appkit/nsevent/1535472-addglobalmonitorforevents) (Apple Developer Documentation)
-- [KeyboardShortcuts GitHub](https://github.com/sindresorhus/KeyboardShortcuts) (sindresorhus)
-- [MASShortcut GitHub](https://github.com/cocoabits/MASShortcut) (cocoabits)
-
-**Background Services:**
-- [Building a MacOS Menu Bar Application](https://medium.com/@enamul97/building-a-macos-menu-bar-application-e367fa3aa816) (Medium, 2024)
-- [BusyCal Menu Bar App](https://www.busymac.com/docs/busycal/70606-busycal-menu/) (Busy Apps)
-
-**Voice Memos Database:**
-- [Where are Voice Memos Stored on Mac](https://www.howtoisolve.com/where-are-voice-memos-stored-on-mac/) (HowToISolve, 2026)
-- [macOSVoiceMemosExporter GitHub](https://github.com/robbyHuelsi/macOSVoiceMemosExporter) (robbyHuelsi)
-- [Audio Transcription Automation for macOS](https://github.com/marycamacho/audio-transcription-automation) (marycamacho)
-
-**Clipboard Operations:**
-- [Copy a string to the clipboard in Swift on macOS](https://nilcoalescing.com/blog/CopyStringToClipboardInSwiftOnMacOS/) (nilcoalescing, December 2024)
-- [SwiftUI/MacOS: Working with NSPasteboard](https://levelup.gitconnected.com/swiftui-macos-working-with-nspasteboard-b5811f98d5d1) (Level Up Coding, November 2024)
-- [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) (Apple Developer Documentation)
-
-**Notifications:**
-- [Using the macOS Notification Center](https://docwiki.embarcadero.com/RADStudio/Sydney/en/Using_the_macOS_Notification_Center) (RAD Studio)
-- [Is it possible to use UNUserNotificationCenter](https://developer.apple.com/forums/thread/679326) (Apple Developer Forums)
-
-**State Machines:**
-- [SwiftState GitHub](https://github.com/ReactKit/SwiftState) (ReactKit)
-- [Rethinking Design Patterns in Swift - State Pattern](https://khawerkhaliq.com/blog/swift-design-patterns-state-pattern/) (Khawer Khaliq)
-- [Building a state driven app in SwiftUI using state machines](https://peterringset.dev/articles/building-a-state-driven-app/) (Peter Ringset)
-
-**Permissions:**
-- [FullDiskAccess GitHub](https://github.com/inket/FullDiskAccess) (inket)
-- [PermissionsKit GitHub](https://github.com/MacPaw/PermissionsKit) (MacPaw)
-
-**Polling Patterns:**
-- [Replacing Foundation Timers with Timer Publishers](https://developer.apple.com/documentation/combine/replacing-foundation-timers-with-timer-publishers) (Apple Developer Documentation)
-- [Swift Concurrency and Polling mechanisms](https://medium.com/@petrachkovsergey/swift-concurrency-and-polling-mechanisms-bb39737d1904) (Medium, 2024)
-- [Best approaches for data polling using Swift concurrency](https://forums.swift.org/t/best-approaches-for-data-polling-using-swift-concurrency/69510) (Swift Forums)
+- AppState.swift source (verified 2026-03-02) — existing pipeline structure
+- RecordingController.swift source (verified 2026-03-02) — withTimeout pattern
+- TextReplacement.swift source (verified 2026-03-02) — @MainActor shared manager pattern
+- Claude CLI --help output (version 2.1.63, verified 2026-03-02) — flags, modes
+- Shell verification: claude nested invocation blocked by CLAUDECODE env var (verified 2026-03-02)
+- [Asynchronous Process Handling in Swift](https://arturgruchala.com/asynchronous-process-handling/) — withCheckedThrowingContinuation + Process pattern
+- [Swift Subprocess (SF-0007)](https://forums.swift.org/t/pitch-swift-subprocess/69805) — future API, not yet stable
+- [Apple Developer Forums: Running a Child Process](https://developer.apple.com/forums/thread/690310) — Foundation.Process async patterns
 
 ---
 
-**Confidence Level:** HIGH
-
-All core patterns verified through official Apple documentation and recent (2024-2026) community implementations. Voice Memos AppleScript limitation confirmed through Apple's documentation on scriptable apps. Architecture recommendations based on survey of modern macOS menu bar apps using SwiftUI + AppKit hybrid approach.
+*Architecture research for: Claude CLI integration into Option-C v1.1*
+*Researched: 2026-03-02*

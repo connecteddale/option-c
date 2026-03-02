@@ -1,349 +1,363 @@
-# Technology Stack
+# Stack Research
 
-**Project:** Option-C (macOS Voice-to-Clipboard Automation)
-**Researched:** 2026-02-01
-**Confidence:** MEDIUM
+**Domain:** macOS voice-to-text app — v1.1 Smart Text Processing (Claude integration)
+**Researched:** 2026-03-02
+**Confidence:** HIGH (verified against official Anthropic API docs and Claude CLI docs)
 
-## Executive Summary
+---
 
-The standard 2025-2026 stack for macOS menu bar apps with global hotkeys uses **Swift + SwiftUI** with specific purpose-built libraries for each component. However, **critical constraint discovered**: Direct Voice Memos control and transcription access face significant limitations. Recommend alternative architecture using native recording with Apple's new SpeechAnalyzer API.
+## Scope
 
-## Recommended Stack
+This document covers only the **new additions** for milestone v1.1. The existing stack (Swift 5.9, WhisperKit, KeyboardShortcuts, MenuBarExtra, AVAudioEngine, NSPasteboard, CGEvent) is validated and unchanged. Focus is on:
 
-### Core Language & Framework
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Swift | 6.1+ | Primary language | Native macOS development, modern concurrency, type safety |
-| SwiftUI | 4.0+ (macOS 13+) | UI framework | MenuBarExtra scene for menu bar apps, native integration |
-| Xcode | 16.3+ | IDE | Required for Swift 6.1+ and latest APIs |
+1. How to call Claude for text post-processing from Swift
+2. Which invocation method to use (CLI vs direct API)
+3. Input/output format and error handling
+4. API key storage
 
-**Rationale:** Swift 6.1 is the current standard (January 2026) with improved concurrency safety. SwiftUI's MenuBarExtra (introduced macOS Ventura) is the modern approach, replacing older NSStatusBar patterns.
+---
 
-**Confidence:** HIGH (verified via official Apple documentation and GRDB requirements)
+## Core Decision: Direct Anthropic API over Claude CLI
 
-### Menu Bar App Framework
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| SwiftUI MenuBarExtra | macOS 13+ | Menu bar interface | Native, simple API for status bar items |
-| AppKit (NSStatusBar) | Fallback only | Backward compatibility | Only if supporting macOS 12 or earlier |
+**Recommendation: Use the Anthropic Messages API directly via URLSession — do not invoke the `claude` CLI binary.**
 
-**Rationale:** MenuBarExtra is the official Apple approach as of WWDC 2022. NSStatusBar remains available but is legacy approach. For a greenfield project targeting modern macOS (13+), MenuBarExtra is the clear choice.
+The `claude` CLI is Claude Code, a coding assistant. It carries significant overhead and has a documented, unfixed TTY bug that causes it to hang indefinitely when called without a terminal (confirmed closed as "not planned", Jan 2026, issue #9026). Invoking it from Swift `Process` would require a pseudo-terminal workaround (`script -q /dev/null`) that is fragile, macOS-specific, and adds latency. A second confirmed bug (issue #7263, closed "not planned", Feb 2026) causes empty output for inputs over ~7,000 characters.
 
-**Confidence:** HIGH (verified via Apple Developer documentation and multiple 2025 sources)
+The direct API is simpler, faster, more reliable, and already what the user's Claude subscription covers.
 
-**What NOT to use:** Don't use pure AppKit/NSStatusBar unless you need macOS 12 support. The SwiftUI approach is simpler and future-proof.
+---
 
-### Global Keyboard Shortcuts
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| KeyboardShortcuts | 2.4.0+ | Global hotkey management | Sandboxed, Mac App Store compatible, battle-tested |
+## Recommended Stack Additions
 
-**GitHub:** https://github.com/sindresorhus/KeyboardShortcuts
+### Core Technologies
 
-**Rationale:**
-- Fully sandboxed and Mac App Store compatible
-- Handles conflict detection with system shortcuts
-- SwiftUI and AppKit components included
-- Production-tested in apps like Dato, Plash, Lungo
-- Active maintenance (latest release Sept 2025)
-- Uses Carbon APIs which are stable despite age
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| Anthropic Messages API | v1 (`2023-06-01`) | Claude text processing | Official REST API, no CLI subprocess, no TTY issues, synchronous round-trip under 2s for short text |
+| URLSession | Built-in (macOS 12+) | HTTP client | Native Apple framework, async/await support, no dependencies |
+| Security framework (Keychain) | Built-in | API key storage | macOS Keychain is the correct, secure location for credentials |
 
-**Confidence:** HIGH (verified via GitHub repository and official documentation)
+### Supporting Libraries
 
-**Alternatives Considered:**
-- **HotKey** (soffes/HotKey): Good for hard-coded shortcuts, no UI components, less feature-complete
-- **MASShortcut**: Objective-C, more complex, older codebase
-- **Custom Carbon API**: Requires significant boilerplate, reinventing the wheel
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| SwiftAnthropic | Latest (SPM) | Optional typed wrapper over the Messages API | Only if adding more Anthropic API features beyond single messages call; for a simple post-processing step, raw URLSession is sufficient |
 
-**What NOT to use:** Don't roll your own Carbon API wrapper. KeyboardShortcuts solves all the edge cases.
+### Development Tools
 
-### Voice Recording & Transcription
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| AVFoundation | Built-in | Audio recording | Native macOS audio capture |
-| SpeechAnalyzer | iOS 26+/macOS 26+ | On-device transcription | Replaces SFSpeechRecognizer, 2.2× faster than Whisper |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| curl | Local testing of API calls | Verify prompt and response shape before writing Swift code |
+| Xcode Instruments (Network) | Profile API call latency | Confirm p50/p95 latency is within acceptable range |
 
-**CRITICAL CONSTRAINT:** Direct Voice Memos control is **NOT feasible** via automation:
-- No AppleScript dictionary support
-- Limited Automator integration (opens but won't record reliably)
-- Database access requires Full Disk Access permission
-- Transcriptions stored in proprietary format within .m4a files
+---
 
-**Architecture Change Required:** Instead of controlling Voice Memos, build native recording:
+## Anthropic Messages API — Verified Specification
 
-1. **AVFoundation** for microphone capture (built-in, no dependencies)
-2. **SpeechAnalyzer** for on-device transcription (iOS 26+/macOS 26+)
-   - 2.2× faster than Whisper Large V3 Turbo
-   - Powers Voice Memos, Notes, Journal internally
-   - Available across all Apple platforms
-   - On-device processing (privacy-preserving)
+### Endpoint
 
-**Confidence:** HIGH for AVFoundation, MEDIUM for SpeechAnalyzer (requires macOS 26+, currently in beta)
+```
+POST https://api.anthropic.com/v1/messages
+```
 
-**Fallback for Pre-macOS 26:**
-- Use **SFSpeechRecognizer** (available macOS 10.15+)
-- Slower but battle-tested
-- Same privacy model (on-device when possible)
+### Required Headers
 
-**What NOT to use:**
-- Don't try to control Voice Memos programmatically (not reliable)
-- Don't use Voice Memos database for transcriptions (fragile, permission issues)
-- Don't use external transcription APIs (privacy concerns, latency, cost)
+```
+x-api-key: YOUR_API_KEY
+anthropic-version: 2023-06-01
+content-type: application/json
+```
 
-### SQLite Database Access
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| GRDB.swift | 7.9.0+ | SQLite ORM & toolkit | Modern, actively maintained, comprehensive features |
+### Minimal Request Body
 
-**GitHub:** https://github.com/groue/GRDB.swift
-
-**Rationale:**
-- Latest release: Dec 13, 2025 (actively maintained)
-- Swift 6.1+ and Xcode 16.3+ compatible
-- Database observation (reactive updates)
-- Robust concurrency support (WAL mode)
-- Migration system included
-- High-level ORM + low-level SQL access
-- Battle-tested in production apps
-
-**Requirements:**
-- Swift 6.1+
-- macOS 10.15+
-- SQLite 3.20.0+ (built into macOS)
-
-**Confidence:** HIGH (verified via GitHub repository, latest release December 2025)
-
-**Alternatives Considered:**
-- **SQLite.swift**: Type-safe wrapper, simpler but less feature-complete
-- **Native SQLite3 C API**: Maximum control but significant boilerplate
-- **Sqlable**: Struct-based models, less mature ecosystem
-
-**What NOT to use:**
-- Don't use the raw SQLite3 C API unless you need maximum control (unlikely for this use case)
-- Don't use CoreData (overkill for simple local storage, SQLite is lighter)
-
-**Note:** If NOT using Voice Memos database, SQLite might be optional. Consider:
-- **UserDefaults** for simple state (recording count, preferences)
-- **File-based storage** for audio files
-- SQLite only if tracking recording history/metadata
-
-### Clipboard Integration
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| NSPasteboard | Built-in | Clipboard access | Native macOS pasteboard API |
-
-**Implementation:**
-```swift
-func copyToClipboard(string: String) {
-    let pasteboard = NSPasteboard.general
-    pasteboard.clearContents()
-    pasteboard.setString(string, forType: .string)
+```json
+{
+  "model": "claude-haiku-4-5",
+  "max_tokens": 512,
+  "system": "You are a text formatter. Clean up the transcription. Return only the corrected text — no commentary.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "fourteen thirty meeting with steve and sarah re budget"
+    }
+  ]
 }
 ```
 
-**Rationale:**
-- Built into AppKit, no dependencies
-- Simple, three-line implementation
-- Handles all clipboard types
+### Response Structure
 
-**Privacy Note (macOS 15.4+):** NSPasteboard includes privacy controls. Set `accessBehavior` to handle permission prompts gracefully.
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "14h30 meeting with Steve and Sarah re budget."
+    }
+  ],
+  "model": "claude-haiku-4-5-20251001",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 12
+  }
+}
+```
 
-**Confidence:** HIGH (verified via Apple documentation and multiple sources)
+Extract the result with: `response.content[0].text`
 
-**What NOT to use:** No third-party clipboard libraries needed. NSPasteboard is sufficient and standard.
+**Confidence:** HIGH — verified against official Anthropic API docs at `platform.claude.com/docs/en/api/messages`
 
-### Notifications
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| UserNotifications | macOS 10.14+ | System notifications | Modern notification framework |
+---
 
-**Rationale:**
-- Replaced older NSUserNotification (deprecated)
-- Rich notifications (actions, images, sounds)
-- Consistent API across Apple platforms
-- Swift 6.2 adds concurrency-safe protocols
+## Model Selection
 
-**Requirements:**
-- Request authorization on first use
-- Handle notification permissions in Settings
+**Use Claude Haiku 4.5 (`claude-haiku-4-5`) for all text post-processing.**
 
-**Confidence:** HIGH (verified via Apple documentation)
+Rationale:
 
-**What NOT to use:** Don't use deprecated NSUserNotification. UserNotifications is the current standard.
+- Fastest response times of any current Claude model
+- "Near-frontier intelligence" — fully capable of punctuation, spelling, capitalisation, time and number formatting
+- Lowest cost ($1/MTok input, $5/MTok output) — a 500-word transcription costs well under $0.001
+- Short text processing does not require Sonnet or Opus reasoning depth
 
-### Dependency Management
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Swift Package Manager | Built-in | Dependency management | Native, lightweight, CocoaPods is sunsetting |
+| Model | Use For | Why Not for This |
+|-------|---------|-----------------|
+| claude-haiku-4-5 | **This feature** | Speed, cost, sufficient capability |
+| claude-sonnet-4-6 | Complex reasoning, coding | Overkill, 3x higher cost, slower |
+| claude-opus-4-6 | Deepest reasoning tasks | Significantly slower and more expensive |
 
-**CRITICAL:** CocoaPods is being sunset (Dec 2, 2026 becomes read-only). SPM is the official future.
+**Confidence:** HIGH — verified via official model overview at `platform.claude.com/docs/en/about-claude/models/overview`
 
-**Rationale:**
-- Native Xcode integration
-- No pre-install steps (unlike CocoaPods/Ruby)
-- Faster CI/CD pipelines
-- Simpler setup (no .xcworkspace, no Podfile.lock)
-- Official Apple support
+---
 
-**Confidence:** HIGH (verified via multiple sources about CocoaPods sunset)
+## Swift Implementation Pattern
 
-**What NOT to use:**
-- **CocoaPods**: Becoming read-only December 2026
-- **Carthage**: Less ecosystem support than SPM
-
-## Installation & Setup
-
-### Package Dependencies
-
-Add to `Package.swift`:
+### URLSession Async/Await (no dependencies)
 
 ```swift
-dependencies: [
-    .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.4.0"),
-    .package(url: "https://github.com/groue/GRDB.swift", from: "7.9.0"), // Optional
-]
+import Foundation
+
+struct ClaudeTextProcessor {
+    private let apiKey: String
+    private let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
+
+    func process(_ text: String) async throws -> String {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        let body: [String: Any] = [
+            "model": "claude-haiku-4-5",
+            "max_tokens": 512,
+            "system": systemPrompt,
+            "messages": [["role": "user", "content": text]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ClaudeError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw ClaudeError.httpError(httpResponse.statusCode)
+        }
+
+        let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
+        guard let textBlock = decoded.content.first(where: { $0.type == "text" }) else {
+            throw ClaudeError.noTextContent
+        }
+        return textBlock.text
+    }
+
+    private let systemPrompt = """
+        You are a transcription formatter. The input is raw voice transcription. \
+        Apply: correct punctuation, British spelling, capitalise sentence starts, \
+        convert spoken times to 24h format with 'h' separator (e.g. 14h30), \
+        convert spoken numbers/currencies to digits and symbols where appropriate. \
+        Return only the corrected text — no explanation, no quotes.
+        """
+}
+
+// Codable models
+struct MessagesResponse: Decodable {
+    let content: [ContentBlock]
+}
+struct ContentBlock: Decodable {
+    let type: String
+    let text: String
+}
+enum ClaudeError: Error {
+    case invalidResponse
+    case httpError(Int)
+    case noTextContent
+}
 ```
 
-### Minimum macOS Version
+**Integration point in RecordingController:** Call `ClaudeTextProcessor.process()` after `TextReplacementManager`, before `ClipboardManager`. The call is already in an async context so no structural changes are required.
 
-**Recommended target:** macOS 13.0 (Ventura)
-- MenuBarExtra requires macOS 13+
-- SpeechAnalyzer requires macOS 26+ (fallback to SFSpeechRecognizer for 10.15-25)
+---
 
-**Conservative target:** macOS 10.15 (Catalina)
-- Use AppKit NSStatusBar instead of MenuBarExtra
-- Use SFSpeechRecognizer for transcription
-- Broader compatibility but more code
+## Why Not the Claude CLI
 
-### Required Entitlements
+Documented for completeness. Do not pursue this route.
 
-```xml
-<!-- Info.plist -->
-<key>LSUIElement</key>
-<true/> <!-- Hide from Dock -->
+| Issue | Detail | Status |
+|-------|--------|--------|
+| TTY required despite `-p` flag | CLI hangs indefinitely when no terminal is attached (e.g., called from Swift Process, Java ProcessBuilder, daemons) | Closed "not planned" Jan 2026, issue #9026 |
+| Empty output on large stdin | Inputs over ~7,000 characters return empty output with exit code 0 | Closed "not planned" Feb 2026, issue #7263 |
+| Workaround is fragile | `script -q /dev/null claude -p "..."` fakes a TTY on macOS but adds subprocess overhead and is undocumented behaviour | Not reliable for a shipped app |
+| Startup overhead | CLI loads Claude Code's entire agent framework, takes 1-3s before first response | Adds latency vs direct API |
+| Wrong tool for this job | CLI is a coding assistant (Claude Code), not a text transformation API | |
 
-<!-- Entitlements -->
-<key>com.apple.security.device.audio-input</key>
-<true/> <!-- Microphone access -->
+---
 
-<key>NSMicrophoneUsageDescription</key>
-<string>Option-C needs microphone access to record voice memos.</string>
+## API Key Storage
 
-<key>NSSpeechRecognitionUsageDescription</key>
-<string>Option-C transcribes your voice recordings to text.</string>
+Store the Anthropic API key in macOS Keychain, not in `@AppStorage` or a file.
+
+```swift
+import Security
+
+func saveAPIKey(_ key: String) {
+    let query: [CFString: Any] = [
+        kSecClass: kSecClassGenericPassword,
+        kSecAttrService: "com.yourname.option-c",
+        kSecAttrAccount: "anthropic-api-key",
+        kSecValueData: key.data(using: .utf8)!
+    ]
+    SecItemDelete(query as CFDictionary)  // remove existing if present
+    SecItemAdd(query as CFDictionary, nil)
+}
+
+func loadAPIKey() -> String? {
+    let query: [CFString: Any] = [
+        kSecClass: kSecClassGenericPassword,
+        kSecAttrService: "com.yourname.option-c",
+        kSecAttrAccount: "anthropic-api-key",
+        kSecReturnData: true
+    ]
+    var result: AnyObject?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    guard status == errSecSuccess,
+          let data = result as? Data,
+          let key = String(data: data, encoding: .utf8) else { return nil }
+    return key
+}
 ```
 
-### Sandbox Considerations
+The Keychain is unlocked when the user logs in, so retrieval is synchronous and instant. No special entitlements are needed for reading/writing the app's own Keychain items when not sandboxed.
 
-**If distributing via Mac App Store:**
-- All recommended libraries are sandbox-compatible
-- No Full Disk Access required (not using Voice Memos database)
-- Microphone permission handled via standard entitlements
+**Confidence:** HIGH — official Apple Developer Documentation confirmed
 
-## Architecture Recommendation
+---
 
-Based on this stack, recommended architecture:
+## WhisperKit Native Formatting (Supporting Research)
 
-```
-┌─────────────────────────────────────────────┐
-│           Menu Bar App (SwiftUI)            │
-│  ┌───────────────────────────────────────┐  │
-│  │  MenuBarExtra (macOS 13+)             │  │
-│  │  or NSStatusBar (fallback)            │  │
-│  └───────────────────────────────────────┘  │
-│                     │                        │
-│         ┌───────────┴───────────┐            │
-│         ▼                       ▼            │
-│  ┌──────────────┐     ┌──────────────────┐  │
-│  │ Hotkey       │     │ Recording State  │  │
-│  │ Manager      │     │ Manager          │  │
-│  │              │     │                  │  │
-│  │ Keyboard     │     │ AVFoundation     │  │
-│  │ Shortcuts    │     │ Audio Capture    │  │
-│  └──────────────┘     └──────────────────┘  │
-│                              │               │
-│                              ▼               │
-│                     ┌──────────────────┐     │
-│                     │ Transcription    │     │
-│                     │ Engine           │     │
-│                     │                  │     │
-│                     │ SpeechAnalyzer   │     │
-│                     │ (macOS 26+)      │     │
-│                     └──────────────────┘     │
-│                              │               │
-│                              ▼               │
-│                     ┌──────────────────┐     │
-│                     │ Clipboard        │     │
-│                     │ Manager          │     │
-│                     │                  │     │
-│                     │ NSPasteboard     │     │
-│                     └──────────────────┘     │
-│                                              │
-│  ┌────────────────────────────────────────┐ │
-│  │ Notifications (UserNotifications)      │ │
-│  └────────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
-```
+DecodingOptions relevant properties (confirmed via source and docs):
 
-## Confidence Assessment
+| Property | Type | Effect |
+|----------|------|--------|
+| `suppressBlank` | Bool | Suppresses blank/silence tokens — already in use |
+| `skipSpecialTokens` | Bool | Removes `<|notimestamps|>` and similar tokens |
+| `withoutTimestamps` | Bool | Disables timestamp prediction |
+| `language` | String? | Lock to `"en"` for better accuracy — already in use |
 
-| Component | Confidence | Source |
-|-----------|------------|--------|
-| Swift/SwiftUI | HIGH | Apple official, GRDB requirements |
-| MenuBarExtra | HIGH | Apple WWDC 2022, multiple tutorials |
-| KeyboardShortcuts | HIGH | GitHub repo, active maintenance |
-| AVFoundation | HIGH | Built-in framework, well-documented |
-| SpeechAnalyzer | MEDIUM | New API (WWDC 2025), requires macOS 26+ |
-| GRDB.swift | HIGH | GitHub repo, Dec 2025 release |
-| NSPasteboard | HIGH | Apple documentation |
-| UserNotifications | HIGH | Apple documentation |
-| SPM over CocoaPods | HIGH | CocoaPods sunset announcement |
-| Voice Memos NOT feasible | HIGH | Multiple sources confirm limitations |
+WhisperKit does **not** have a native punctuation formatting option beyond what the Whisper model itself outputs. The model adds commas and full stops sporadically based on training data, but the output is inconsistent for voice dictation use cases. Claude post-processing is the right approach for reliable formatting.
 
-## Critical Decision: Voice Memos vs Native Recording
+**Confidence:** MEDIUM — WhisperKit source code reviewed indirectly via Swift Package Index docs and GitHub Configurations.swift; no `formatPunctuation` or equivalent property found
 
-**Finding:** Direct Voice Memos control is NOT reliable for automation:
-- No official AppleScript support
-- Automator workflows unreliable (opens but won't record)
-- Database access requires Full Disk Access (poor UX, security risk)
-- Transcription format is proprietary
+---
 
-**Recommendation:** Build native recording using AVFoundation + SpeechAnalyzer
-- **Pros:** Full control, better UX, no permission issues, faster transcription
-- **Cons:** Need to implement recording UI (minimal work with SwiftUI)
+## Latency Expectations
 
-**Confidence:** HIGH (multiple sources confirm Voice Memos limitations)
+| Step | Expected Duration | Notes |
+|------|------------------|-------|
+| WhisperKit base model | 1–2s | Already validated |
+| WhisperKit large model | 10–20s | Already validated |
+| Anthropic API (Haiku) TTFT | ~300–600ms | Network-dependent; measured from UK/EU |
+| Anthropic API total (50-word input) | ~600ms–1.2s | Short text, low output tokens |
+| Anthropic API total (200-word input) | ~1–2s | Still within acceptable range |
 
-## Version Update Strategy
+Claude post-processing adds roughly 1s to the pipeline for typical voice dictation text (under 200 words). This is the trade-off documented in PROJECT.md and accepted by the user.
 
-**Keep current with:**
-- Swift language updates (6.x series)
-- Xcode releases (16.x series)
-- KeyboardShortcuts minor versions (2.x)
-- GRDB.swift minor versions (7.x)
+**Confidence:** MEDIUM — official docs confirm Haiku is fastest but do not publish exact p50/p95 figures; estimates based on documented relative performance
 
-**Monitor for:**
-- macOS 26 release (enables SpeechAnalyzer)
-- CocoaPods sunset (December 2, 2026)
-- MenuBarExtra API improvements
+---
+
+## Alternatives Considered
+
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| Direct Anthropic API | Claude CLI subprocess | Never — confirmed bugs make it unreliable in non-TTY contexts |
+| URLSession (native) | SwiftAnthropic package | If adding multiple Anthropic features (streaming, tool use, multi-turn); overkill for single endpoint |
+| Claude Haiku 4.5 | Claude Sonnet 4.6 | Only if formatting quality proves insufficient (unlikely for this use case) |
+| Keychain | @AppStorage for API key | Never — API keys must not be stored in unencrypted user defaults |
+| System prompt with strict instructions | Few-shot examples in prompt | If zero-shot Haiku results are inconsistent; few-shot adds ~50 tokens per example but improves consistency |
+
+---
+
+## What NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `claude` CLI binary via Process | TTY hang bug (closed "not planned"), empty output bug on large input | Direct Anthropic Messages API |
+| `@AppStorage` for API key | Stored in unencrypted plist, exposed in plaintext | macOS Keychain |
+| Claude Opus or Sonnet for this task | 3–15x more expensive, slower, no quality benefit for formatting | Claude Haiku 4.5 |
+| SwiftAnthropic or other third-party SDK | Adds a dependency for one HTTP call | Native URLSession |
+| Streaming (`stream: true`) | Unnecessary for clipboard workflow — text must be complete before paste | Standard synchronous request |
+
+---
+
+## Stack Patterns by Variant
+
+**If the user has no Anthropic API key:**
+- Detect nil from Keychain load on startup
+- Show one-time setup prompt in menu (enter key, save to Keychain)
+- Gracefully disable AI processing toggle until key is saved
+- Because the app must function without AI processing when the feature is off or unconfigured
+
+**If API call fails (network error, rate limit, 529 overload):**
+- Catch the error, log it, return the original unprocessed text
+- Show brief error state in menu bar icon (existing xmark pattern)
+- Because the core value (voice-to-clipboard) must not break when AI is unavailable
+
+**If the user toggles AI processing off:**
+- Skip the ClaudeTextProcessor call entirely in RecordingController
+- Store toggle state in `@AppStorage("aiProcessingEnabled")`
+- Because latency-sensitive use cases (quick notes, voice commands) should not pay the API round-trip
+
+---
+
+## Version Compatibility
+
+| Package | Compatible With | Notes |
+|---------|----------------|-------|
+| Anthropic API `2023-06-01` | All current Claude models | Stable version string; do not omit this header |
+| claude-haiku-4-5 | API version 2023-06-01+ | Current model; alias resolves to `claude-haiku-4-5-20251001` |
+| URLSession async/await | macOS 12+ | Project targets macOS 14+, so no issue |
+| Security framework Keychain | macOS 10.9+ | Available on all target platforms |
+
+---
 
 ## Sources
 
-**High Confidence (Official/Verified):**
-- [GRDB.swift GitHub](https://github.com/groue/GRDB.swift) - Latest: v7.9.0, Dec 13, 2025
-- [KeyboardShortcuts GitHub](https://github.com/sindresorhus/KeyboardShortcuts) - Latest: v2.4.0
-- [Apple SpeechAnalyzer Documentation](https://developer.apple.com/documentation/speech/speechanalyzer)
-- [WWDC 2025 - SpeechAnalyzer](https://developer.apple.com/videos/play/wwdc2025/277/)
-- [Apple MenuBarExtra Documentation](https://developer.apple.com/documentation/SwiftUI/Building-and-customizing-the-menu-bar-with-SwiftUI)
-- [CocoaPods Sunset Announcement](https://capgo.app/blog/ios-spm-vs-cocoapods-capacitor-migration-guide/)
+- [Anthropic CLI Reference](https://code.claude.com/docs/en/cli-reference) — confirmed `-p` flag, `--output-format`, `--system-prompt` flags; HIGH confidence
+- [Claude CLI TTY hang issue #9026](https://github.com/anthropics/claude-code/issues/9026) — closed "not planned" Jan 2026; confirmed CLI is not suitable for Swift Process invocation
+- [Claude CLI large stdin bug #7263](https://github.com/anthropics/claude-code/issues/7263) — closed "not planned" Feb 2026; empty output >7000 chars; HIGH confidence
+- [Anthropic Messages API](https://platform.claude.com/docs/en/api/messages) — verified endpoint, headers, request/response format; HIGH confidence
+- [Anthropic Models Overview](https://platform.claude.com/docs/en/about-claude/models/overview) — verified Haiku 4.5 as fastest model, pricing confirmed; HIGH confidence
+- [Anthropic Latency Guide](https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-latency) — confirmed Haiku recommendation for speed-critical applications; HIGH confidence
+- [Apple Keychain Documentation](https://developer.apple.com/documentation/security/storing-keys-in-the-keychain) — SecItemAdd/SecItemCopyMatching pattern; HIGH confidence
+- [WhisperKit Swift Package Index](https://swiftpackageindex.com/argmaxinc/WhisperKit/v0.13.0/documentation/whisperkit/decodingoptions) — DecodingOptions properties; MEDIUM confidence (403 on direct fetch, inferred from search results)
+- [SwiftAnthropic GitHub](https://github.com/jamesrochabrun/SwiftAnthropic) — confirmed as viable alternative; URLSession-based on Apple platforms; MEDIUM confidence
 
-**Medium Confidence (Community/Recent):**
-- [SwiftUI Menu Bar App Tutorials](https://nilcoalescing.com/blog/BuildAMacOSMenuBarUtilityInSwiftUI/)
-- [Voice Memos Automation Limitations](https://fordprior.com/2025/06/02/automating-voice-memo-transcription/)
-- [Voice Memos Database Location](https://nono.ma/location-of-apple-voice-memos)
-- [macOS Pasteboard Privacy](https://mjtsai.com/blog/2025/05/12/pasteboard-privacy-preview-in-macos-15-4/)
+---
 
-**WebSearch Findings (Multiple Sources):**
-- Swift Package Manager replacing CocoaPods (2025-2026)
-- SpeechAnalyzer performance benchmarks (2.2× faster than Whisper)
-- MenuBarExtra as standard for menu bar apps (macOS 13+)
+*Stack research for: Option-C v1.1 — Claude API text post-processing*
+*Researched: 2026-03-02*

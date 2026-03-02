@@ -91,11 +91,11 @@ Plans:
   3. Spoken currencies convert to symbols and figures (e.g. "fifty pounds" becomes "£50")
   4. Transcription has correct punctuation, spelling, and capitalisation after AI processing
   5. If Ollama is not running or model is missing, user sees a clear error message and the raw transcription is still delivered to clipboard
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: System prompt — encode all formatting rules (punctuation, times, numbers, currencies, spelling, capitalisation, output-only constraint, prompt injection boundary)
-- [ ] 05-02: Availability checking and error resilience — LLM-03 health check before enabling toggle, UX-03 error messaging, UX-04 graceful fallback
+- [ ] 05-01-PLAN.md — System prompt with full formatting rules, few-shot examples, and @AppStorage model preference
+- [ ] 05-02-PLAN.md — Ollama availability checking (/api/tags), error resilience UI, AppError cases, graceful fallback preservation
 
 ## Progress
 
@@ -112,4 +112,4 @@ Phases execute in numeric order: 4 -> 5
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-03-02 (Phase 4 plans created)*
+*Last updated: 2026-03-02 (Phase 5 plans created)*

@@ -22,7 +22,7 @@ class AppState: ObservableObject {
     @AppStorage("aiProcessingEnabled") var aiProcessingEnabled: Bool = false
 
     /// Selected Ollama model for AI text cleanup (persisted)
-    @AppStorage("ollamaModel") var ollamaModel: String = "llama3.2"
+    @AppStorage("ollamaModel") var ollamaModel: String = "llama3.1:8b"
 
     /// Whether Whisper model is loaded and ready
     @Published var whisperModelLoaded: Bool = false

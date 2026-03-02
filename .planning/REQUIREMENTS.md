@@ -9,18 +9,18 @@ Requirements for milestone v1.1 — Smart Text Processing. Each maps to roadmap 
 
 ### Text Processing
 
-- [ ] **PROC-01**: User's transcription has correct punctuation (commas, semicolons, full stops, question marks)
-- [ ] **PROC-02**: User's spoken times are converted to standard 24h format (e.g. "quarter past three" becomes "15:15")
-- [ ] **PROC-03**: User's spoken numbers under 10 remain as words, numbers 10 and over are converted to digits
-- [ ] **PROC-04**: User's spoken currencies are converted to symbols with figures (e.g. "fifty pounds" becomes "£50")
-- [ ] **PROC-05**: User's transcription has correct spelling and capitalisation
+- [x] **PROC-01**: User's transcription has correct punctuation (commas, semicolons, full stops, question marks)
+- [x] **PROC-02**: User's spoken times are converted to standard 24h format (e.g. "quarter past three" becomes "15:15")
+- [x] **PROC-03**: User's spoken numbers under 10 remain as words, numbers 10 and over are converted to digits
+- [x] **PROC-04**: User's spoken currencies are converted to symbols with figures (e.g. "fifty pounds" becomes "£50")
+- [x] **PROC-05**: User's transcription has correct spelling and capitalisation
 
 ### LLM Integration
 
 - [x] **LLM-01**: App calls Ollama HTTP API (localhost:11434) with configurable timeout
 - [x] **LLM-02**: LLM provider is behind a protocol so Ollama can be swapped for Anthropic API later
 - [ ] **LLM-03**: App checks Ollama availability and model presence before enabling AI toggle
-- [ ] **LLM-04**: System prompt encodes all formatting rules (times, numbers, currencies, punctuation, spelling)
+- [x] **LLM-04**: System prompt encodes all formatting rules (times, numbers, currencies, punctuation, spelling)
 
 ### UX
 
@@ -62,15 +62,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROC-01 | Phase 5 | Pending |
-| PROC-02 | Phase 5 | Pending |
-| PROC-03 | Phase 5 | Pending |
-| PROC-04 | Phase 5 | Pending |
-| PROC-05 | Phase 5 | Pending |
+| PROC-01 | Phase 5 | Complete |
+| PROC-02 | Phase 5 | Complete |
+| PROC-03 | Phase 5 | Complete |
+| PROC-04 | Phase 5 | Complete |
+| PROC-05 | Phase 5 | Complete |
 | LLM-01 | Phase 4 | Complete |
 | LLM-02 | Phase 4 | Complete |
 | LLM-03 | Phase 5 | Pending |
-| LLM-04 | Phase 5 | Pending |
+| LLM-04 | Phase 5 | Complete |
 | UX-01 | Phase 4 | Complete |
 | UX-02 | Phase 4 | Complete |
 | UX-03 | Phase 5 | Pending |

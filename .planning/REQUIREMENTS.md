@@ -17,15 +17,15 @@ Requirements for milestone v1.1 — Smart Text Processing. Each maps to roadmap 
 
 ### LLM Integration
 
-- [ ] **LLM-01**: App calls Ollama HTTP API (localhost:11434) with configurable timeout
-- [ ] **LLM-02**: LLM provider is behind a protocol so Ollama can be swapped for Anthropic API later
+- [x] **LLM-01**: App calls Ollama HTTP API (localhost:11434) with configurable timeout
+- [x] **LLM-02**: LLM provider is behind a protocol so Ollama can be swapped for Anthropic API later
 - [ ] **LLM-03**: App checks Ollama availability and model presence before enabling AI toggle
 - [ ] **LLM-04**: System prompt encodes all formatting rules (times, numbers, currencies, punctuation, spelling)
 
 ### UX
 
-- [ ] **UX-01**: User can toggle AI processing on/off via menu bar dropdown
-- [ ] **UX-02**: Menu bar icon shows distinct state when AI is processing
+- [x] **UX-01**: User can toggle AI processing on/off via menu bar dropdown
+- [x] **UX-02**: Menu bar icon shows distinct state when AI is processing
 - [ ] **UX-03**: User sees clear error message if Ollama is not running or model is missing
 - [ ] **UX-04**: If AI processing fails, raw WhisperKit text is delivered to clipboard (never lose transcription)
 
@@ -67,12 +67,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROC-03 | Phase 5 | Pending |
 | PROC-04 | Phase 5 | Pending |
 | PROC-05 | Phase 5 | Pending |
-| LLM-01 | Phase 4 | Pending |
-| LLM-02 | Phase 4 | Pending |
+| LLM-01 | Phase 4 | Complete |
+| LLM-02 | Phase 4 | Complete |
 | LLM-03 | Phase 5 | Pending |
 | LLM-04 | Phase 5 | Pending |
-| UX-01 | Phase 4 | Pending |
-| UX-02 | Phase 4 | Pending |
+| UX-01 | Phase 4 | Complete |
+| UX-02 | Phase 4 | Complete |
 | UX-03 | Phase 5 | Pending |
 | UX-04 | Phase 5 | Pending |
 
@@ -83,4 +83,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-02*
-*Last updated: 2026-03-02 — traceability updated after roadmap creation (Phases 4-5)*
+*Last updated: 2026-03-02 — Phase 4 requirements (LLM-01, LLM-02, UX-01, UX-02) verified complete*

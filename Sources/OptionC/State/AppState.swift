@@ -18,11 +18,20 @@ class AppState: ObservableObject {
     /// Selected Whisper model for transcription
     @AppStorage("selectedWhisperModel") var selectedWhisperModel: String = "openai_whisper-base"
 
+    /// Whether AI text cleanup via Ollama is enabled (persisted)
+    @AppStorage("aiProcessingEnabled") var aiProcessingEnabled: Bool = false
+
     /// Whether Whisper model is loaded and ready
     @Published var whisperModelLoaded: Bool = false
 
     /// Whether Whisper model is currently loading
     @Published var whisperModelLoading: Bool = false
+
+    /// Whether Ollama AI processing is in progress (drives UI icon state)
+    @Published var aiProcessing: Bool = false
+
+    /// Swappable LLM provider — typed as protocol, not concrete class (LLM-02)
+    private let llmProvider: any LLMProcessingProvider = OllamaProcessingEngine.shared
 
     /// Controller that orchestrates audio capture and transcription
     private let recordingController = RecordingController()
@@ -199,8 +208,22 @@ class AppState: ObservableObject {
             // Apply text replacements
             let text = TextReplacementManager.shared.apply(to: rawText)
 
+            // Apply AI cleanup if enabled
+            var finalText = text
+            if aiProcessingEnabled {
+                aiProcessing = true
+                defer { aiProcessing = false }
+                do {
+                    finalText = try await llmProvider.process(text)
+                    NSLog("[OptionC] AI cleanup applied")
+                } catch {
+                    NSLog("[OptionC] AI cleanup skipped: \(error)")
+                    // finalText stays as text — pipeline continues unchanged
+                }
+            }
+
             // Copy to clipboard
-            try ClipboardManager.copy(text)
+            try ClipboardManager.copy(finalText)
             NSLog("[OptionC] Copied to clipboard")
 
             // Auto-paste if enabled
@@ -210,7 +233,7 @@ class AppState: ObservableObject {
                 simulatePaste()
             }
 
-            transitionToSuccess(transcription: text)
+            transitionToSuccess(transcription: finalText)
 
         } catch AppError.transcriptionTimeout {
             NSLog("[OptionC] Transcription timed out after 30s")
@@ -300,7 +323,7 @@ class AppState: ObservableObject {
         case .recording:
             return "mic.fill"
         case .processing:
-            return "ellipsis"
+            return aiProcessing ? "wand.and.stars" : "ellipsis"
         case .success:
             return "checkmark"
         case .error:

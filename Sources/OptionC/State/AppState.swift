@@ -21,6 +21,9 @@ class AppState: ObservableObject {
     /// Whether AI text cleanup via Ollama is enabled (persisted)
     @AppStorage("aiProcessingEnabled") var aiProcessingEnabled: Bool = false
 
+    /// Selected Ollama model for AI text cleanup (persisted)
+    @AppStorage("ollamaModel") var ollamaModel: String = "llama3.2"
+
     /// Whether Whisper model is loaded and ready
     @Published var whisperModelLoaded: Bool = false
 
@@ -30,8 +33,10 @@ class AppState: ObservableObject {
     /// Whether Ollama AI processing is in progress (drives UI icon state)
     @Published var aiProcessing: Bool = false
 
-    /// Swappable LLM provider — typed as protocol, not concrete class (LLM-02)
-    private let llmProvider: any LLMProcessingProvider = OllamaProcessingEngine.shared
+    /// Swappable LLM provider — creates engine with user's model preference (LLM-02)
+    private var llmProvider: any LLMProcessingProvider {
+        OllamaProcessingEngine(model: ollamaModel)
+    }
 
     /// Controller that orchestrates audio capture and transcription
     private let recordingController = RecordingController()

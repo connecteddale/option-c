@@ -234,6 +234,9 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Toggle("AI text cleanup (Ollama)", isOn: $appState.aiProcessingEnabled)
+                .toggleStyle(.checkbox)
         }
     }
 }

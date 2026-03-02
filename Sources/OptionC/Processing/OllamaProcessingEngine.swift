@@ -8,6 +8,13 @@ enum OllamaError: Error {
     case outputLengthSuspect
 }
 
+/// Status returned by OllamaProcessingEngine availability check.
+enum OllamaAvailabilityStatus {
+    case available
+    case ollamaNotRunning
+    case modelNotFound(configured: String)
+}
+
 /// Concrete LLM provider that calls Ollama's /api/chat endpoint via URLSession.
 /// Uses non-streaming mode (stream: false) to receive a single JSON response.
 final class OllamaProcessingEngine: LLMProcessingProvider {
@@ -99,6 +106,37 @@ final class OllamaProcessingEngine: LLMProcessingProvider {
 
         return output
     }
+
+    /// Check whether Ollama is running and the configured model is available.
+    /// Uses a 5-second timeout (not the 60-second chat timeout).
+    func checkAvailability() async -> OllamaAvailabilityStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
+        request.timeoutInterval = 5  // Short timeout for health check
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return .ollamaNotRunning
+            }
+            let tagsResponse = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
+
+            // Normalise model names: /api/tags returns "llama3.2:latest", configured may be "llama3.2"
+            let installedBaseNames = tagsResponse.models.map { modelInfo -> String in
+                let components = modelInfo.name.split(separator: ":")
+                return components.first.map(String.init) ?? modelInfo.name
+            }
+            let configuredBase = model.split(separator: ":").first.map(String.init) ?? model
+
+            if installedBaseNames.contains(configuredBase) {
+                return .available
+            } else {
+                return .modelNotFound(configured: model)
+            }
+        } catch {
+            // URLError.cannotConnectToHost when Ollama is not running, or any other network error
+            return .ollamaNotRunning
+        }
+    }
 }
 
 // MARK: - Codable Models
@@ -117,4 +155,12 @@ private struct OllamaMessage: Codable {
 private struct OllamaChatResponse: Decodable {
     let message: OllamaMessage
     let done: Bool
+}
+
+private struct OllamaTagsResponse: Decodable {
+    let models: [OllamaModelInfo]
+}
+
+private struct OllamaModelInfo: Decodable {
+    let name: String
 }

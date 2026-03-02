@@ -10,13 +10,14 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 
 ## Current Milestone: v1.1 Smart Text Processing
 
-**Goal:** Add intelligent text post-processing via Claude CLI so transcriptions come back properly formatted — punctuation, 24h times, numbers, currencies, spelling, capitalisation.
+**Goal:** Add intelligent text post-processing via local LLM (Ollama) so transcriptions come back properly formatted — punctuation, 24h times, numbers, currencies, spelling, capitalisation.
 
 **Target features:**
-- Research WhisperKit's native formatting capabilities
-- Claude CLI post-processing for full text cleanup
+- Ollama integration for local AI text cleanup (no API key, no network)
+- Full text post-processing: punctuation, spelling, capitalisation, numbers, currencies
+- 24h time format with 'h' separator (15:15, 09:30)
 - Menu toggle for AI processing on/off
-- 24h time format with 'h' separator (14h30, 15h15)
+- Swappable provider architecture (Ollama first, Anthropic API fallback)
 
 ## Requirements
 
@@ -46,12 +47,12 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] AI-powered text cleanup via Claude CLI (punctuation, spelling, capitalisation)
-- [ ] Time formatting to 24h international format (14h30)
+- [ ] AI-powered text cleanup via Ollama (punctuation, spelling, capitalisation)
+- [ ] Time formatting to 24h international format (15:15)
 - [ ] Number conversion (spoken words to digits)
 - [ ] Currency formatting (spoken to symbols)
 - [ ] Menu toggle for AI processing on/off
-- [ ] WhisperKit native formatting research and integration
+- [ ] Swappable LLM provider architecture (Ollama first, Anthropic API later)
 
 ### Out of Scope
 
@@ -88,14 +89,15 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 - Flow: hotkey -> AppState -> RecordingController -> AudioCaptureManager -> WhisperTranscriptionEngine -> TextReplacementManager -> ClipboardManager -> optional auto-paste
 
 **v1.1 integration point:**
-- Claude CLI processing slots in after TextReplacementManager, before ClipboardManager
-- New pipeline: WhisperKit -> text replacements -> (if AI on) Claude CLI -> clipboard
+- Ollama processing slots in after TextReplacementManager, before ClipboardManager
+- New pipeline: WhisperKit -> text replacements -> (if AI on) Ollama -> clipboard
+- Ollama HTTP API at localhost:11434 — same URLSession pattern, no API key needed
 
 ## Constraints
 
 - **Platform**: macOS 14+ (Sonoma) — required for MenuBarExtra
-- **Claude CLI**: Must be installed and authenticated on user's machine
-- **Latency**: Claude CLI adds network round-trip; acceptable trade-off for quality
+- **Ollama**: Must be installed with a model downloaded on user's machine
+- **Latency**: Local LLM adds processing time; faster than API round-trip, acceptable trade-off
 - **Language**: Swift + SwiftUI — native frameworks require native language
 
 ## Key Decisions
@@ -108,7 +110,8 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 | Auto-paste via CGEvent | Seamless workflow, optional toggle | ✓ Good |
 | Text replacements post-processing | Zero latency, user-customisable | ✓ Good |
 | Self-signed certificate | Persistent accessibility trust across rebuilds | ✓ Good |
-| Claude CLI over API | No API key management, leverages existing subscription | — Pending |
+| Ollama over Claude CLI | CLI has confirmed bugs (TTY hang, empty output). Ollama is local, no API key, no network. | — Pending |
+| Swappable provider architecture | Start with Ollama, swap to Anthropic API if quality insufficient | — Pending |
 | Keep text replacements alongside AI | Custom shortcuts/jargon that AI shouldn't touch | — Pending |
 | AI processing as toggle | User controls latency trade-off | — Pending |
 

@@ -1,55 +1,47 @@
 # Requirements: Option-C
 
-**Defined:** 2026-02-01
+**Defined:** 2026-03-02
 **Core Value:** Voice-to-clipboard with a single keyboard shortcut
 
-## v1 Requirements
+## v1.1 Requirements
 
-Requirements for initial release. Each maps to roadmap phases.
+Requirements for milestone v1.1 — Smart Text Processing. Each maps to roadmap phases.
 
-### Core Recording
+### Text Processing
 
-- [ ] **CORE-01**: User can start recording by pressing Option-C
-- [ ] **CORE-02**: User can stop recording by pressing Option-C again (toggle mode)
-- [ ] **CORE-03**: User can hold Option-C to record and release to stop (push-to-talk mode)
-- [ ] **CORE-04**: User can switch between toggle and push-to-talk modes via menu
+- [ ] **PROC-01**: User's transcription has correct punctuation (commas, semicolons, full stops, question marks)
+- [ ] **PROC-02**: User's spoken times are converted to standard 24h format (e.g. "quarter past three" becomes "15:15")
+- [ ] **PROC-03**: User's spoken numbers under 10 remain as words, numbers 10 and over are converted to digits
+- [ ] **PROC-04**: User's spoken currencies are converted to symbols with figures (e.g. "fifty pounds" becomes "£50")
+- [ ] **PROC-05**: User's transcription has correct spelling and capitalisation
 
-### Menu Bar
+### LLM Integration
 
-- [ ] **MENU-01**: App appears in menu bar with icon
-- [ ] **MENU-02**: Icon visually changes when recording (idle → recording)
-- [ ] **MENU-03**: Icon visually changes when processing transcription (recording → processing)
-- [ ] **MENU-04**: Menu shows current mode (toggle/push-to-talk)
-- [ ] **MENU-05**: Menu allows quitting the app
+- [ ] **LLM-01**: App calls Ollama HTTP API (localhost:11434) with configurable timeout
+- [ ] **LLM-02**: LLM provider is behind a protocol so Ollama can be swapped for Anthropic API later
+- [ ] **LLM-03**: App checks Ollama availability and model presence before enabling AI toggle
+- [ ] **LLM-04**: System prompt encodes all formatting rules (times, numbers, currencies, punctuation, spelling)
 
-### Transcription
+### UX
 
-- [ ] **TRAN-01**: Audio is transcribed using on-device Speech framework
-- [ ] **TRAN-02**: Transcription runs offline (no internet required)
-- [ ] **TRAN-03**: Transcription text is copied to clipboard automatically
+- [ ] **UX-01**: User can toggle AI processing on/off via menu bar dropdown
+- [ ] **UX-02**: Menu bar icon shows distinct state when AI is processing
+- [ ] **UX-03**: User sees clear error message if Ollama is not running or model is missing
+- [ ] **UX-04**: If AI processing fails, raw WhisperKit text is delivered to clipboard (never lose transcription)
 
-### Feedback
+## Future Requirements
 
-- [ ] **FEED-01**: Notification appears when transcription is ready
-- [ ] **FEED-02**: Notification appears if transcription fails
-- [ ] **FEED-03**: App returns to idle state after completion
+Deferred to future milestones. Tracked but not in current roadmap.
 
-### Error Handling
+### Provider Options
 
-- [ ] **ERRH-01**: App handles missing microphone permission gracefully
-- [ ] **ERRH-02**: App handles missing speech recognition permission gracefully
-- [ ] **ERRH-03**: App shows timeout error if no speech detected for 30 seconds
+- **PROV-01**: User can switch between Ollama and Anthropic API as LLM provider
+- **PROV-02**: User can configure Anthropic API key via settings
 
-## v2 Requirements
+### Advanced Formatting
 
-Deferred to future release. Tracked but not in current roadmap.
-
-### Differentiators
-
-- **DIFF-01**: Live transcription preview (text appears as user speaks)
-- **DIFF-02**: Context awareness (detect focused app, format accordingly)
-- **DIFF-03**: AI reformatting modes (formal, code, casual)
-- **DIFF-04**: History with playback (review past transcriptions)
+- **ADVF-01**: AI reformatting modes (formal, code, casual)
+- **ADVF-02**: Context awareness (detect focused app, format accordingly)
 
 ## Out of Scope
 
@@ -57,13 +49,12 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Feature | Reason |
 |---------|--------|
-| Multi-language support | User doesn't need it; can add later if requested |
-| File transcription | This is a clipboard tool, not a transcription service |
-| Cloud sync / accounts | Privacy-first, local-only approach |
-| Audio storage | Delete after transcription; no history in v1 |
-| Voice commands | Conflicts with macOS Voice Control |
-| Custom notification sounds | Keep it minimal, use system defaults |
-| Dock icon | Menu bar only, invisible until needed |
+| Anthropic API as primary provider | Ollama first; API is future fallback if quality insufficient |
+| Live transcription preview | Complexity not justified |
+| History with playback | Not part of text processing milestone |
+| Multi-language support | Not needed currently |
+| Model fine-tuning | Overkill for formatting task |
+| Streaming LLM output | Unnecessary for short transcription text |
 
 ## Traceability
 
@@ -71,30 +62,25 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 2 | Pending |
-| CORE-02 | Phase 2 | Pending |
-| CORE-03 | Phase 2 | Pending |
-| CORE-04 | Phase 1 | Pending |
-| MENU-01 | Phase 1 | Pending |
-| MENU-02 | Phase 1 | Pending |
-| MENU-03 | Phase 1 | Pending |
-| MENU-04 | Phase 1 | Pending |
-| MENU-05 | Phase 1 | Pending |
-| TRAN-01 | Phase 2 | Pending |
-| TRAN-02 | Phase 2 | Pending |
-| TRAN-03 | Phase 2 | Pending |
-| FEED-01 | Phase 3 | Pending |
-| FEED-02 | Phase 3 | Pending |
-| FEED-03 | Phase 3 | Pending |
-| ERRH-01 | Phase 3 | Pending |
-| ERRH-02 | Phase 3 | Pending |
-| ERRH-03 | Phase 3 | Pending |
+| PROC-01 | — | Pending |
+| PROC-02 | — | Pending |
+| PROC-03 | — | Pending |
+| PROC-04 | — | Pending |
+| PROC-05 | — | Pending |
+| LLM-01 | — | Pending |
+| LLM-02 | — | Pending |
+| LLM-03 | — | Pending |
+| LLM-04 | — | Pending |
+| UX-01 | — | Pending |
+| UX-02 | — | Pending |
+| UX-03 | — | Pending |
+| UX-04 | — | Pending |
 
 **Coverage:**
-- v1 requirements: 18 total
-- Mapped to phases: 18
-- Unmapped: 0 ✓
+- v1.1 requirements: 13 total
+- Mapped to phases: 0
+- Unmapped: 13
 
 ---
-*Requirements defined: 2026-02-01*
-*Last updated: 2026-02-01 after roadmap creation*
+*Requirements defined: 2026-03-02*
+*Last updated: 2026-03-02 after initial definition*

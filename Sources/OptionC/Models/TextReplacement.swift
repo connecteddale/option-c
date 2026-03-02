@@ -37,6 +37,10 @@ final class TextReplacementManager: ObservableObject {
     /// Supports \n and \t in both find and replace strings.
     func apply(to text: String) -> String {
         var result = text
+
+        // Apply built-in spoken punctuation (hardcoded, not user-editable)
+        result = applySpokenPunctuation(result)
+
         // Apply longer find strings first to avoid partial-match conflicts
         let sorted = replacements.sorted { $0.find.count > $1.find.count }
         for r in sorted where !r.find.isEmpty {
@@ -173,6 +177,59 @@ final class TextReplacementManager: ObservableObject {
                 guard let letterRange = Range(match.range(at: 2), in: result) else { continue }
                 let upper = String(result[letterRange]).uppercased()
                 result.replaceSubrange(letterRange, with: upper)
+            }
+        }
+
+        return result
+    }
+
+    /// Apply built-in spoken punctuation replacements.
+    /// Uses word boundaries to avoid matching inside other words.
+    /// Structural replacements (new line, new paragraph) absorb surrounding whitespace/punctuation.
+    /// Punctuation replacements absorb one preceding punctuation mark to prevent doubling.
+    private func applySpokenPunctuation(_ text: String) -> String {
+        var result = text
+
+        // Ordered longest-first to avoid partial matches
+        let replacements: [(find: String, replace: String, structural: Bool)] = [
+            ("new paragraph", "\n\n", true),
+            ("exclamation mark", "!", false),
+            ("question mark", "?", false),
+            ("close quotes", "\u{201D}", false),
+            ("open quotes", "\u{201C}", false),
+            ("new line", "\n", true),
+            ("full stop", ".", false),
+            ("semicolon", ";", false),
+            ("colon", ":", false),
+            ("comma", ",", false),
+            ("dash", "\u{2014}", false),
+        ]
+
+        for r in replacements {
+            let words = r.find.components(separatedBy: " ")
+            let escaped = words.map { NSRegularExpression.escapedPattern(for: $0) }
+            let corePattern: String
+            if words.count > 1 {
+                corePattern = escaped.joined(separator: "[\\s,;.!?]+")
+            } else {
+                corePattern = escaped[0]
+            }
+
+            let fullPattern: String
+            if r.structural {
+                // Absorb surrounding whitespace and trailing punctuation
+                fullPattern = "\\s*\\b" + corePattern + "\\b[.!?,;:]*\\s*"
+            } else {
+                // Absorb one preceding and any trailing punctuation marks
+                fullPattern = "[.!?,;:]?\\s*\\b" + corePattern + "\\b[.!?,;:]*"
+            }
+
+            if let regex = try? NSRegularExpression(pattern: fullPattern, options: .caseInsensitive) {
+                result = regex.stringByReplacingMatches(
+                    in: result,
+                    range: NSRange(result.startIndex..., in: result),
+                    withTemplate: NSRegularExpression.escapedTemplate(for: r.replace)
+                )
             }
         }
 

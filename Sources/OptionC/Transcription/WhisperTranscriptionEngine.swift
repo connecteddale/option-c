@@ -73,10 +73,11 @@ actor WhisperTranscriptionEngine {
 
         let results = try await whisperKit.transcribe(audioPath: audioURL.path)
 
-        // Combine all segments into final text
+        // Combine all segments into final text, stripping [BLANK_AUDIO] tokens
         let text = results
             .compactMap { $0.text }
             .joined(separator: " ")
+            .replacingOccurrences(of: "\\[BLANK_AUDIO\\]", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return text
@@ -99,6 +100,7 @@ actor WhisperTranscriptionEngine {
         "uh",
         "hmm",
         "ah",
+        "blank_audio",
     ]
 
     /// True if the text looks like a WhisperKit hallucination on silent audio.
@@ -134,11 +136,12 @@ actor WhisperTranscriptionEngine {
         )
 
         // Filter out segments that are blank-audio hallucinations,
-        // then combine remaining segments into final text
+        // then combine remaining segments and strip embedded [BLANK_AUDIO] tokens
         let text = results
             .compactMap { $0.text }
             .filter { !isBlankAudioHallucination($0) }
             .joined(separator: " ")
+            .replacingOccurrences(of: "\\[BLANK_AUDIO\\]", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return text

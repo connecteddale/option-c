@@ -24,6 +24,12 @@ class AppState: ObservableObject {
     /// Selected Ollama model for AI text cleanup (persisted)
     @AppStorage("ollamaModel") var ollamaModel: String = "llama3.1:8b"
 
+    /// Selected AI provider: "ollama" or "claude" (persisted)
+    @AppStorage("aiProvider") var aiProvider: String = "ollama"
+
+    /// Anthropic API key for Claude provider (persisted)
+    @AppStorage("anthropicApiKey") var anthropicApiKey: String = ""
+
     /// Whether Whisper model is loaded and ready
     @Published var whisperModelLoaded: Bool = false
 
@@ -33,15 +39,18 @@ class AppState: ObservableObject {
     /// Whether Ollama AI processing is in progress (drives UI icon state)
     @Published var aiProcessing: Bool = false
 
-    /// Whether Ollama is available (checked when toggle is enabled)
-    @Published var ollamaAvailable: Bool = true  // Optimistic default — checked on toggle enable
+    /// Whether the selected AI provider is available
+    @Published var aiProviderAvailable: Bool = true  // Optimistic default — checked on toggle enable
 
-    /// User-facing availability message (nil when available)
-    @Published var ollamaAvailabilityMessage: String? = nil
+    /// User-facing provider status message (nil when available)
+    @Published var aiProviderStatusMessage: String? = nil
 
-    /// Swappable LLM provider — creates engine with user's model preference (LLM-02)
+    /// Swappable LLM provider — returns engine for the selected provider
     private var llmProvider: any LLMProcessingProvider {
-        OllamaProcessingEngine(model: ollamaModel)
+        if aiProvider == "claude" {
+            return AnthropicProcessingEngine(apiKey: anthropicApiKey)
+        }
+        return OllamaProcessingEngine(model: ollamaModel)
     }
 
     /// Controller that orchestrates audio capture and transcription
@@ -90,20 +99,32 @@ class AppState: ObservableObject {
         whisperModelLoading = false
     }
 
-    /// Check Ollama availability and update state
-    func checkOllamaAvailability() async {
+    /// Check AI provider availability and update state
+    func checkAIProviderAvailability() async {
+        if aiProvider == "claude" {
+            if anthropicApiKey.isEmpty {
+                aiProviderAvailable = false
+                aiProviderStatusMessage = "API key required"
+            } else {
+                aiProviderAvailable = true
+                aiProviderStatusMessage = nil
+            }
+            return
+        }
+
+        // Ollama check
         let engine = OllamaProcessingEngine(model: ollamaModel)
         let status = await engine.checkAvailability()
         switch status {
         case .available:
-            ollamaAvailable = true
-            ollamaAvailabilityMessage = nil
+            aiProviderAvailable = true
+            aiProviderStatusMessage = nil
         case .ollamaNotRunning:
-            ollamaAvailable = false
-            ollamaAvailabilityMessage = "Ollama is not running. Start it with: ollama serve"
+            aiProviderAvailable = false
+            aiProviderStatusMessage = "Ollama not running. Start: ollama serve"
         case .modelNotFound(let configured):
-            ollamaAvailable = false
-            ollamaAvailabilityMessage = "Model '\(configured)' not found. Run: ollama pull \(configured)"
+            aiProviderAvailable = false
+            aiProviderStatusMessage = "Model '\(configured)' not found. Run: ollama pull \(configured)"
         }
     }
 
@@ -244,8 +265,13 @@ class AppState: ObservableObject {
                 do {
                     finalText = try await llmProvider.process(text)
                     NSLog("[OptionC] AI cleanup applied")
+                    // Clear any stale availability warning — provider is clearly working
+                    aiProviderAvailable = true
+                    aiProviderStatusMessage = nil
                 } catch {
                     NSLog("[OptionC] AI cleanup skipped: \(error)")
+                    // Re-check availability so warning reflects current state
+                    await checkAIProviderAvailability()
                     // finalText stays as text — pipeline continues unchanged
                 }
             }

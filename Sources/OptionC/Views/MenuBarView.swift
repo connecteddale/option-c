@@ -148,6 +148,25 @@ struct MenuBarView: View {
         .buttonStyle(.plain)
     }
 
+    private func providerButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(.accentColor)
+                        .fontWeight(.semibold)
+                        .font(.caption)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Whisper Model Section
 
     private var whisperModelSection: some View {
@@ -235,26 +254,76 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
             }
 
-            Toggle("AI text cleanup (Ollama)", isOn: $appState.aiProcessingEnabled)
+            Toggle("AI text cleanup", isOn: $appState.aiProcessingEnabled)
                 .toggleStyle(.checkbox)
                 .onChange(of: appState.aiProcessingEnabled) { _, enabled in
                     if enabled {
-                        Task { await appState.checkOllamaAvailability() }
+                        Task { await appState.checkAIProviderAvailability() }
                     }
                 }
 
-            if appState.aiProcessingEnabled && !appState.ollamaAvailable,
-               let message = appState.ollamaAvailabilityMessage {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.caption)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+            if appState.aiProcessingEnabled {
+                providerButton(
+                    title: "Ollama (local)",
+                    isSelected: appState.aiProvider == "ollama",
+                    action: {
+                        appState.aiProvider = "ollama"
+                        Task { await appState.checkAIProviderAvailability() }
+                    }
+                )
+                .padding(.leading, 20)
+
+                providerButton(
+                    title: "Claude (API)",
+                    isSelected: appState.aiProvider == "claude",
+                    action: {
+                        appState.aiProvider = "claude"
+                        Task { await appState.checkAIProviderAvailability() }
+                    }
+                )
+                .padding(.leading, 20)
+
+                if appState.aiProvider == "claude" {
+                    Button(appState.anthropicApiKey.isEmpty ? "Set API Key..." : "Change API Key...") {
+                        showAPIKeyDialog()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                    .padding(.leading, 36)
                 }
             }
+
+            if appState.aiProcessingEnabled && !appState.aiProviderAvailable,
+               let message = appState.aiProviderStatusMessage {
+                (Text(Image(systemName: "exclamationmark.triangle.fill")) + Text(" " + message))
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .padding(.leading, 20)
+            }
+        }
+    }
+
+    // MARK: - API Key Dialog
+
+    private func showAPIKeyDialog() {
+        let alert = NSAlert()
+        alert.messageText = "Anthropic API Key"
+        alert.informativeText = "Enter your key from console.anthropic.com"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        input.placeholderString = "sk-ant-..."
+        input.stringValue = appState.anthropicApiKey
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            appState.anthropicApiKey = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            Task { await appState.checkAIProviderAvailability() }
         }
     }
 }

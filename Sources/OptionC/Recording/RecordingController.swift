@@ -17,7 +17,8 @@ private final class TimeoutState: @unchecked Sendable {
 
 /// Executes an async operation with a hard timeout.
 /// Uses independent Tasks so the timeout fires even if the operation blocks.
-/// The operation continues running in the background but its result is discarded.
+/// Cancels the operation task when the timeout fires to prevent leaked work
+/// from blocking actor serial queues (e.g. WhisperTranscriptionEngine).
 func withTimeout<T: Sendable>(
     seconds: TimeInterval,
     operation: @escaping @Sendable () async throws -> T
@@ -25,8 +26,8 @@ func withTimeout<T: Sendable>(
     try await withCheckedThrowingContinuation { continuation in
         let state = TimeoutState()
 
-        // Operation task
-        Task {
+        // Operation task — stored so we can cancel it on timeout
+        let operationTask = Task {
             do {
                 let result = try await operation()
                 if state.tryComplete() {
@@ -43,6 +44,7 @@ func withTimeout<T: Sendable>(
         Task {
             try? await Task.sleep(for: .seconds(seconds))
             if state.tryComplete() {
+                operationTask.cancel()
                 continuation.resume(throwing: AppError.transcriptionTimeout)
             }
         }

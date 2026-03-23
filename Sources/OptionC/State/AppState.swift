@@ -7,7 +7,11 @@ import Cocoa
 @MainActor
 class AppState: ObservableObject {
     /// Current recording state
-    @Published var currentState: RecordingState = .idle
+    @Published var currentState: RecordingState = .idle {
+        didSet {
+            NSLog("[OptionC] State: %@ → %@", "\(oldValue)", "\(currentState)")
+        }
+    }
 
     /// User preference for recording mode (persisted)
     @AppStorage("recordingMode") var recordingMode: RecordingMode = .pushToTalk
@@ -284,7 +288,7 @@ class AppState: ObservableObject {
             if autoPasteEnabled {
                 // Delay to ensure clipboard is ready and the frontmost app has focus
                 try? await Task.sleep(for: .milliseconds(500))
-                simulatePaste()
+                await simulatePaste()
             }
 
             transitionToSuccess(transcription: finalText)
@@ -315,7 +319,7 @@ class AppState: ObservableObject {
     }
 
     /// Simulate Cmd+V keystroke to paste clipboard contents
-    private func simulatePaste() {
+    private func simulatePaste() async {
         guard AXIsProcessTrusted() else {
             NSLog("[OptionC] Paste failed: Accessibility permission not granted")
             requestAccessibilityIfNeeded()
@@ -335,7 +339,11 @@ class AppState: ObservableObject {
         keyUp.flags = .maskCommand
 
         keyDown.post(tap: .cgSessionEventTap)
-        usleep(50_000) // 50ms between key down and key up
+
+        // Async sleep so we don't block the main thread between key events.
+        // 50ms gap needed for receiving apps to register the keystroke.
+        try? await Task.sleep(for: .milliseconds(50))
+
         keyUp.post(tap: .cgSessionEventTap)
         NSLog("[OptionC] Paste keystroke sent")
     }

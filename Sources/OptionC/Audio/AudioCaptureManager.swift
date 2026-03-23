@@ -1,5 +1,33 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Speech
+
+/// Thread-safe audio sample buffer that can be appended to from any thread.
+/// Extracted from AudioCaptureManager so the real-time audio tap callback
+/// can write samples without dispatching to MainActor.
+private final class AudioSampleBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float] = []
+
+    func append(_ newSamples: [Float]) {
+        lock.lock()
+        samples.append(contentsOf: newSamples)
+        lock.unlock()
+    }
+
+    func drain() -> [Float] {
+        lock.lock()
+        let result = samples
+        samples = []
+        lock.unlock()
+        return result
+    }
+
+    func reset() {
+        lock.lock()
+        samples = []
+        lock.unlock()
+    }
+}
 
 /// Manages microphone audio capture using AVAudioEngine.
 /// Supports both streaming to SFSpeechRecognizer and collecting samples for WhisperKit.
@@ -9,8 +37,9 @@ class AudioCaptureManager {
     /// Critical: Must be Optional and nil'd between sessions to avoid state corruption
     private var audioEngine: AVAudioEngine?
 
-    /// Collected audio samples for WhisperKit (16kHz mono Float)
-    private var audioSamples: [Float] = []
+    /// Thread-safe buffer for collected audio samples (16kHz mono Float).
+    /// The audio tap callback appends directly without dispatching to MainActor.
+    private let sampleBuffer = AudioSampleBuffer()
 
     /// Audio converter for resampling to 16kHz
     private var audioConverter: AVAudioConverter?
@@ -52,7 +81,7 @@ class AudioCaptureManager {
     func startCaptureForWhisper() throws {
         // Create fresh AVAudioEngine instance for each session
         audioEngine = AVAudioEngine()
-        audioSamples = []
+        sampleBuffer.reset()
 
         guard let audioEngine = audioEngine else {
             return
@@ -69,25 +98,36 @@ class AudioCaptureManager {
             audioConverter = AVAudioConverter(from: inputFormat, to: whisperFormat)
         }
 
-        // Install tap to collect audio samples
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let self = self, self.isCapturing else { return }
+        // Capture converter reference for the closure — avoids accessing
+        // MainActor-isolated self.audioConverter from the audio thread.
+        let converter = audioConverter
+        let buffer = sampleBuffer
 
-            Task { @MainActor in
-                self.processBuffer(buffer, inputFormat: inputFormat, targetFormat: whisperFormat)
-            }
+        // Install tap to collect audio samples.
+        // The tap callback runs on a real-time audio thread — do the conversion
+        // here and append to the thread-safe buffer, avoiding MainActor dispatch.
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { pcmBuffer, _ in
+            Self.processBuffer(pcmBuffer, converter: converter, targetFormat: whisperFormat, into: buffer)
         }
 
         audioEngine.prepare()
         try audioEngine.start()
     }
 
-    /// Process audio buffer and convert to 16kHz mono if needed
-    private func processBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat, targetFormat: AVAudioFormat) {
+    /// Process audio buffer on the audio thread (NOT MainActor).
+    /// Converts to 16kHz mono and appends to the thread-safe sample buffer.
+    /// Static so it captures no actor-isolated state.
+    nonisolated private static func processBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        converter: AVAudioConverter?,
+        targetFormat: AVAudioFormat,
+        into sampleBuffer: AudioSampleBuffer
+    ) {
         var samplesToAdd: [Float] = []
 
-        if let converter = audioConverter {
+        if let converter = converter {
             // Need to convert
+            let inputFormat = buffer.format
             let frameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * 16000.0 / inputFormat.sampleRate) + 1
             guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCapacity) else { return }
 
@@ -116,12 +156,12 @@ class AudioCaptureManager {
             }
         }
 
-        audioSamples.append(contentsOf: samplesToAdd)
+        sampleBuffer.append(samplesToAdd)
     }
 
     /// Get collected audio samples (for WhisperKit transcription)
     func getAudioSamples() -> [Float] {
-        return audioSamples
+        return sampleBuffer.drain()
     }
 
     /// Stop audio capture and clean up resources.

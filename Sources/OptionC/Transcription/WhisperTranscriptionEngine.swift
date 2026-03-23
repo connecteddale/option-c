@@ -119,6 +119,10 @@ actor WhisperTranscriptionEngine {
             throw TranscriptionError.modelNotLoaded
         }
 
+        // Bail out early if the calling task was already cancelled (e.g. timeout fired)
+        // to avoid queuing expensive work on this actor's serial executor.
+        try Task.checkCancellation()
+
         let options = DecodingOptions(
             language: "en",
             temperature: 0.0,
@@ -134,6 +138,9 @@ actor WhisperTranscriptionEngine {
             audioArray: audioSamples,
             decodeOptions: options
         )
+
+        // Check again after the heavy work — no point processing results if cancelled
+        try Task.checkCancellation()
 
         // Filter out segments that are blank-audio hallucinations,
         // then combine remaining segments and strip embedded [BLANK_AUDIO] tokens

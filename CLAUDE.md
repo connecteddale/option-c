@@ -48,8 +48,10 @@ Flow: keyboard shortcut -> AppState -> RecordingController -> AudioCaptureManage
 ## Gotchas
 
 - CGEvent.post needs Accessibility permission. Use `AXIsProcessTrusted()` to check -- System Settings UI can be misleading.
-- Auto-paste needs 500ms delay before paste and 50ms gap between keyDown/keyUp for apps to register the keystroke.
+- Auto-paste needs 500ms delay before paste and 50ms gap between keyDown/keyUp for apps to register the keystroke. Use async `Task.sleep`, never `usleep` -- blocking the main thread stalls all `@MainActor` work.
 - TextFields don't work inside MenuBarExtra popovers. Use a separate NSPanel window (see ReplacementsWindow).
 - When cancelling a Task, early returns from `guard !Task.isCancelled` must still clean up state.
 - Ad-hoc signing invalidates accessibility trust on every rebuild. The "OptionC Dev" certificate solves this.
 - WhisperKit models cache after first download. Base model is ~1-2s, Large ~10-20s.
+- Audio tap callbacks run on a real-time audio thread. Never dispatch to MainActor from them -- use the thread-safe `AudioSampleBuffer` instead.
+- `withTimeout` must cancel the operation task when the timeout fires. Without this, hung WhisperKit transcriptions leak tasks that permanently block the actor's serial queue, causing the app to hang.

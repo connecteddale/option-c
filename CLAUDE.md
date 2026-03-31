@@ -55,3 +55,6 @@ Flow: keyboard shortcut -> AppState -> RecordingController -> AudioCaptureManage
 - WhisperKit models cache after first download. Base model is ~1-2s, Large ~10-20s.
 - Audio tap callbacks run on a real-time audio thread. Never dispatch to MainActor from them -- use the thread-safe `AudioSampleBuffer` instead.
 - `withTimeout` must cancel the operation task when the timeout fires. Without this, hung WhisperKit transcriptions leak tasks that permanently block the actor's serial queue, causing the app to hang.
+- WhisperKit doesn't respect Swift task cancellation mid-inference. After a timeout, call `WhisperTranscriptionEngine.recreate()` to swap in a fresh actor -- new recordings route to a clean queue; the old actor drains in the background.
+- Recording is capped at 90s. Very long audio arrays can push WhisperKit past the 30s transcription timeout. The cap prevents this and bounds memory use.
+- If the mic indicator stays on after force-quitting the app, run `sudo killall coreaudiod` to reset the CoreAudio daemon. This is a macOS bug -- the process releases the mic on exit but the TCC indicator sometimes doesn't update.

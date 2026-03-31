@@ -66,6 +66,9 @@ class AppState: ObservableObject {
     /// Current model loading task (cancellable)
     private var modelLoadTask: Task<Void, Never>?
 
+    /// Task that enforces maximum recording duration (auto-stops after 90s)
+    private var maxRecordingTask: Task<Void, Never>?
+
     init() {
         // Register both key down and key up handlers for dual-mode support
         KeyboardShortcuts.onKeyDown(for: .toggleRecording) { [weak self] in
@@ -226,9 +229,20 @@ class AppState: ObservableObject {
             try recordingController.startRecording()
             currentState = .recording
 
+            // Auto-stop after 90s to prevent very long audio arrays from
+            // overwhelming WhisperKit and triggering the 30s transcription timeout
+            maxRecordingTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(90))
+                guard let self, !Task.isCancelled, self.currentState == .recording else { return }
+                NSLog("[OptionC] Max recording duration (90s) reached, stopping automatically")
+                await self.stopRecording()
+            }
+
             // Check if key was released while we were starting
             if shouldStopAfterStart {
                 shouldStopAfterStart = false
+                maxRecordingTask?.cancel()
+                maxRecordingTask = nil
                 Task { await stopRecording() }
             }
         } catch {
@@ -240,6 +254,8 @@ class AppState: ObservableObject {
 
     /// Stop recording and process transcription
     private func stopRecording() async {
+        maxRecordingTask?.cancel()
+        maxRecordingTask = nil
         currentState = .processing
         NSLog("[OptionC] Processing started")
 
@@ -294,7 +310,12 @@ class AppState: ObservableObject {
             transitionToSuccess(transcription: finalText)
 
         } catch AppError.transcriptionTimeout {
-            NSLog("[OptionC] Transcription timed out after 30s")
+            NSLog("[OptionC] Transcription timed out after 30s — recreating WhisperKit engine")
+            // Abandon the stuck actor so subsequent recordings don't queue behind it.
+            // Reload the model in the background so the app is ready immediately after.
+            WhisperTranscriptionEngine.recreate()
+            whisperModelLoaded = false
+            modelLoadTask = Task { await loadWhisperModel() }
             transitionToError(.transcriptionTimeout)
 
         } catch let error as AppError {

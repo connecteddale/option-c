@@ -3,8 +3,25 @@ import WhisperKit
 
 /// Transcription engine using WhisperKit for high-accuracy speech recognition
 actor WhisperTranscriptionEngine {
-    /// Shared instance
-    static let shared = WhisperTranscriptionEngine()
+    /// Lock protecting the shared instance so it can be swapped after a timeout.
+    private static let instanceLock = NSLock()
+    private static var _shared = WhisperTranscriptionEngine()
+
+    /// The current shared instance. Always routes to the live actor.
+    static var shared: WhisperTranscriptionEngine {
+        instanceLock.lock()
+        defer { instanceLock.unlock() }
+        return _shared
+    }
+
+    /// Abandon the current instance and create a fresh one.
+    /// Call this after a transcription timeout to unblock the actor's serial queue.
+    /// The old instance finishes or discards its queued work in the background.
+    static func recreate() {
+        instanceLock.lock()
+        defer { instanceLock.unlock() }
+        _shared = WhisperTranscriptionEngine()
+    }
 
     /// The WhisperKit pipeline
     private var whisperKit: WhisperKit?

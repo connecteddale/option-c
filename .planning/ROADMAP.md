@@ -3,7 +3,7 @@
 ## Milestones
 
 - [x] **v1.0 Core Voice-to-Clipboard** - Phases 1-3 (shipped 2026-02-01)
-- [ ] **v1.1 Smart Text Processing** - Phases 4-5 (in progress)
+- [x] **v1.1 Smart Text Processing** - Phases 4-5 (shipped 2026-03-02)
 
 ## Phases
 
@@ -78,8 +78,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — OllamaProcessingEngine: LLMProcessingProvider protocol, URLSession wrapper, Codable models, AppError case
-- [ ] 04-02-PLAN.md — AppState integration: pipeline wiring, aiProcessingEnabled toggle, aiProcessing state, MenuBarView toggle, distinct icon
+- [x] 04-01-PLAN.md — OllamaProcessingEngine: LLMProcessingProvider protocol, URLSession wrapper, Codable models, AppError case
+- [x] 04-02-PLAN.md — AppState integration: pipeline wiring, aiProcessingEnabled toggle, aiProcessing state, MenuBarView toggle, distinct icon
 
 #### Phase 5: Formatting Quality and Error Resilience
 **Goal**: User's transcriptions are correctly formatted across punctuation, times, numbers, and currencies, and the app handles Ollama being unavailable without losing the transcription
@@ -94,8 +94,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — System prompt with full formatting rules, few-shot examples, and @AppStorage model preference
-- [ ] 05-02-PLAN.md — Ollama availability checking (/api/tags), error resilience UI, AppError cases, graceful fallback preservation
+- [x] 05-01-PLAN.md — System prompt with full formatting rules, few-shot examples, and @AppStorage model preference
+- [x] 05-02-PLAN.md — Ollama availability checking (/api/tags), error resilience UI, AppError cases, graceful fallback preservation
 
 ## Progress
 
@@ -107,9 +107,9 @@ Phases execute in numeric order: 4 -> 5
 | 1. Foundation & Menu Bar | v1.0 | 2/2 | Complete | 2026-02-01 |
 | 2. Core Recording & Transcription | v1.0 | 2/2 | Complete | 2026-02-01 |
 | 3. Feedback & Error Handling | v1.0 | 3/3 | Complete | 2026-02-01 |
-| 4. Ollama Engine and Pipeline Integration | v1.1 | 0/2 | Not started | - |
-| 5. Formatting Quality and Error Resilience | v1.1 | 0/2 | Not started | - |
+| 4. Ollama Engine and Pipeline Integration | v1.1 | 2/2 | Complete | 2026-03-02 |
+| 5. Formatting Quality and Error Resilience | v1.1 | 2/2 | Complete | 2026-03-02 |
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-03-02 (Phase 5 plans created)*
+*Last updated: 2026-03-31 (v1.1 marked shipped; stability fix — WhisperKit actor recreation + 90s recording cap)*

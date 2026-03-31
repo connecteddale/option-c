@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Smart Text Processing
-status: unknown
-last_updated: "2026-03-02T14:31:19.465Z"
+status: shipped
+last_updated: "2026-03-31T00:00:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 5
@@ -15,19 +15,18 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-02)
+See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't capture speech and deliver text to clipboard, nothing else matters.
-**Current focus:** Phase 4 — Ollama Engine and Pipeline Integration
+**Current focus:** Shipped — v1.1 complete. Next milestone not yet defined.
 
 ## Current Position
 
-Phase: 4 of 5 (v1.1 — Ollama Engine and Pipeline Integration)
-Plan: 2 of 2 in current phase
-Status: All plans complete, pending verification
-Last activity: 2026-03-02 — Plan 04-02 complete (pipeline wiring + AI toggle)
+Phase: 5 of 5 (v1.1 — complete)
+Status: All phases and plans complete. v1.1 shipped 2026-03-02.
+Last activity: 2026-03-31 — stability fix (WhisperKit actor recreation + 90s recording cap)
 
-Progress: [######----] 60% (3/5 phases complete, v1.0 shipped)
+Progress: [##########] 100% (5/5 phases complete, v1.1 shipped)
 
 ## Performance Metrics
 
@@ -62,16 +61,14 @@ None yet.
 
 ### Blockers/Concerns
 
-- Confirm bundle ID from Package.swift before writing Keychain/URLSession code (service identifier must match exactly)
-- Output length guard threshold (300% of input) needs empirical calibration after Phase 5 prompt tuning
-- Instrument actual Ollama latency during Phase 4 smoke testing to confirm timeout value is appropriate
+None. App is stable and shipped.
 
 ## Session Continuity
 
-Last session: 2026-03-02
-Stopped at: Roadmap created — ready to plan Phase 4
+Last session: 2026-03-31
+Stopped at: Stability fix shipped — WhisperKit actor recreation + 90s recording cap
 Resume file: None
 
 ---
 *Created: 2026-02-01*
-*Last updated: 2026-03-02 (v1.1 roadmap, STATE reset for Phase 4)*
+*Last updated: 2026-03-31 (v1.1 shipped, stability fix applied)*

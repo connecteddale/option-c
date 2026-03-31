@@ -8,16 +8,18 @@ A macOS menu bar app that turns Option-C into a voice-to-clipboard shortcut. Pre
 
 Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't capture speech and deliver text to clipboard, nothing else matters.
 
-## Current Milestone: v1.1 Smart Text Processing
+## Current Milestone: v1.1 Smart Text Processing — SHIPPED 2026-03-02
 
-**Goal:** Add intelligent text post-processing via local LLM (Ollama) so transcriptions come back properly formatted — punctuation, 24h times, numbers, currencies, spelling, capitalisation.
-
-**Target features:**
+**Shipped:**
 - Ollama integration for local AI text cleanup (no API key, no network)
-- Full text post-processing: punctuation, spelling, capitalisation, numbers, currencies
-- 24h time format with 'h' separator (15:15, 09:30)
+- Text post-processing: punctuation, spelling, capitalisation, filler removal, British English
 - Menu toggle for AI processing on/off
-- Swappable provider architecture (Ollama first, Anthropic API fallback)
+- Swappable provider architecture — Ollama and Anthropic Claude both implemented
+- Graceful fallback — raw transcription always reaches clipboard on AI failure
+
+**Post-milestone stability fix (2026-03-31):**
+- WhisperKit actor recreation after timeout (prevents queue backup)
+- 90s max recording duration cap
 
 ## Requirements
 
@@ -39,20 +41,20 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 - Auto-capitalisation of line starts
 - Error notifications with recovery suggestions
 - Permission handling (microphone, accessibility)
-- Timeout handling (30s no speech)
+- Timeout handling (30s transcription timeout; 90s max recording)
 - Auto-reset state transitions (success/error)
 - Self-signed certificate for persistent accessibility trust
+- AI text cleanup via Ollama (punctuation, spelling, capitalisation, British English)
+- Swappable LLM provider architecture (Ollama and Anthropic Claude)
+- Menu toggle for AI processing on/off
+- Graceful fallback on AI failure (raw transcription always delivered)
+- WhisperKit actor recreation after timeout (prevents queue backup on hang)
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] AI-powered text cleanup via Ollama (punctuation, spelling, capitalisation)
-- [ ] Time formatting to 24h international format (15:15)
-- [ ] Number conversion (spoken words to digits)
-- [ ] Currency formatting (spoken to symbols)
-- [ ] Menu toggle for AI processing on/off
-- [ ] Swappable LLM provider architecture (Ollama first, Anthropic API later)
+Nothing active. v1.1 shipped. Next milestone not yet defined.
 
 ### Out of Scope
 
@@ -83,15 +85,11 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 - AppState coordinates all UI state
 - RecordingController orchestrates audio capture + transcription
 - AudioCaptureManager handles microphone via AVAudioEngine
-- WhisperTranscriptionEngine wraps WhisperKit (singleton)
+- WhisperTranscriptionEngine wraps WhisperKit (recreatable singleton — swapped after timeout to unblock actor queue)
 - ClipboardManager handles NSPasteboard + CGEvent paste simulation
 - TextReplacementManager runs find/replace post-processing
-- Flow: hotkey -> AppState -> RecordingController -> AudioCaptureManager -> WhisperTranscriptionEngine -> TextReplacementManager -> ClipboardManager -> optional auto-paste
-
-**v1.1 integration point:**
-- Ollama processing slots in after TextReplacementManager, before ClipboardManager
-- New pipeline: WhisperKit -> text replacements -> (if AI on) Ollama -> clipboard
-- Ollama HTTP API at localhost:11434 — same URLSession pattern, no API key needed
+- OllamaProcessingEngine / AnthropicProcessingEngine — swappable LLM providers via LLMProcessingProvider protocol
+- Flow: hotkey -> AppState -> RecordingController -> AudioCaptureManager -> WhisperTranscriptionEngine -> TextReplacementManager -> (if AI on) LLMProvider -> ClipboardManager -> optional auto-paste
 
 ## Constraints
 
@@ -110,10 +108,12 @@ Voice-to-clipboard with a single keyboard shortcut. If the hotkey doesn't captur
 | Auto-paste via CGEvent | Seamless workflow, optional toggle | ✓ Good |
 | Text replacements post-processing | Zero latency, user-customisable | ✓ Good |
 | Self-signed certificate | Persistent accessibility trust across rebuilds | ✓ Good |
-| Ollama over Claude CLI | CLI has confirmed bugs (TTY hang, empty output). Ollama is local, no API key, no network. | — Pending |
-| Swappable provider architecture | Start with Ollama, swap to Anthropic API if quality insufficient | — Pending |
-| Keep text replacements alongside AI | Custom shortcuts/jargon that AI shouldn't touch | — Pending |
-| AI processing as toggle | User controls latency trade-off | — Pending |
+| Ollama over Claude CLI | CLI has confirmed bugs (TTY hang, empty output). Ollama is local, no API key, no network. | ✓ Good |
+| Swappable provider architecture | Start with Ollama, swap to Anthropic API if quality insufficient | ✓ Both implemented |
+| Keep text replacements alongside AI | Custom shortcuts/jargon that AI shouldn't touch | ✓ Good |
+| AI processing as toggle | User controls latency trade-off | ✓ Good |
+| Recreate WhisperKit actor after timeout | Stuck tasks block the actor's serial queue; swap in a fresh instance to unblock | ✓ Good |
+| Cap recording at 90s | Prevents audio arrays large enough to push WhisperKit past the 30s timeout | ✓ Good |
 
 ---
-*Last updated: 2026-03-02 after starting milestone v1.1*
+*Last updated: 2026-03-31 — v1.1 shipped; stability fix applied*

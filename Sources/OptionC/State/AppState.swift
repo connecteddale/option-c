@@ -85,11 +85,11 @@ class AppState: ObservableObject {
     }
 
     /// Load the selected Whisper model
-    func loadWhisperModel() async {
+    func loadWhisperModel(skipWarmup: Bool = false) async {
         whisperModelLoading = true
         whisperModelLoaded = false
         do {
-            try await WhisperTranscriptionEngine.shared.loadModel(selectedWhisperModel)
+            try await WhisperTranscriptionEngine.shared.loadModel(selectedWhisperModel, skipWarmup: skipWarmup)
             guard !Task.isCancelled else {
                 whisperModelLoading = false
                 return
@@ -149,6 +149,9 @@ class AppState: ObservableObject {
 
     /// Track if we need to stop recording when key is released (for push-to-talk)
     private var pendingStopOnKeyUp = false
+
+    /// Last error encountered — persists until next successful transcription
+    @Published var lastError: AppError? = nil
 
     /// Whether the app can accept a new recording right now
     private var canStartRecording: Bool {
@@ -312,10 +315,12 @@ class AppState: ObservableObject {
         } catch AppError.transcriptionTimeout {
             NSLog("[OptionC] Transcription timed out after 30s — recreating WhisperKit engine")
             // Abandon the stuck actor so subsequent recordings don't queue behind it.
-            // Reload the model in the background so the app is ready immediately after.
+            // Skip warmup on reload: the old engine is still running on the ANE in the
+            // background, and a warmup inference would block until it finishes — leaving
+            // whisperModelLoading = true indefinitely and the app unable to record.
             WhisperTranscriptionEngine.recreate()
             whisperModelLoaded = false
-            modelLoadTask = Task { await loadWhisperModel() }
+            modelLoadTask = Task { await loadWhisperModel(skipWarmup: true) }
             transitionToError(.transcriptionTimeout)
 
         } catch let error as AppError {
@@ -371,6 +376,7 @@ class AppState: ObservableObject {
 
     /// Transition to success state with brief icon flash then back to idle
     private func transitionToSuccess(transcription: String) {
+        lastError = nil
         currentState = .success(transcription: transcription)
 
         Task {
@@ -384,6 +390,7 @@ class AppState: ObservableObject {
 
     /// Transition to error state with brief icon flash then back to idle
     private func transitionToError(_ error: AppError) {
+        lastError = error
         currentState = .error(error)
 
         Task {
@@ -392,6 +399,13 @@ class AppState: ObservableObject {
             if case .error = currentState {
                 currentState = .idle
             }
+        }
+    }
+
+    /// Open the Microphone section of Privacy & Security in System Settings
+    func openMicrophoneSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
         }
     }
 

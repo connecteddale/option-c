@@ -51,8 +51,11 @@ actor WhisperTranscriptionEngine {
         return whisperKit != nil && !isLoading
     }
 
-    /// Load a Whisper model (downloads if needed)
-    func loadModel(_ modelName: String) async throws {
+    /// Load a Whisper model (downloads if needed).
+    /// - Parameter skipWarmup: Skip the warmup inference. Use `true` when reloading after a
+    ///   transcription timeout — the old engine is still running on the ANE in the background,
+    ///   and a warmup inference would block indefinitely waiting for it to finish.
+    func loadModel(_ modelName: String, skipWarmup: Bool = false) async throws {
         // Skip if already loaded
         if currentModel == modelName && whisperKit != nil {
             return
@@ -72,6 +75,8 @@ actor WhisperTranscriptionEngine {
 
         whisperKit = try await WhisperKit(config)
         currentModel = modelName
+
+        guard !skipWarmup else { return }
 
         // Warm up the Neural Engine by running a short silent transcription.
         // First inference triggers CoreML compilation which can take 30-60s

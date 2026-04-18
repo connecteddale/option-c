@@ -72,6 +72,8 @@ struct MenuBarView: View {
                     .background(Color.secondary.opacity(0.15))
                     .cornerRadius(4)
             }
+
+            lastErrorView
         }
     }
 
@@ -98,6 +100,31 @@ struct MenuBarView: View {
             return "Model not loaded"
         } else {
             return appState.currentState.displayName
+        }
+    }
+
+    @ViewBuilder
+    private var lastErrorView: some View {
+        if let error = appState.lastError {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                    Text(error.errorDescription ?? "Error")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                if case .microphonePermissionDenied = error {
+                    Button("Open Microphone Settings") {
+                        appState.openMicrophoneSettings()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                    .padding(.leading, 16)
+                }
+            }
         }
     }
 
